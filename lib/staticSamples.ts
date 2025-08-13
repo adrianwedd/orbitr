@@ -63,8 +63,14 @@ async function generateWithHuggingFace(prompt: string): Promise<SampleLibraryIte
 }
 
 async function generateMockSample(prompt: string): Promise<SampleLibraryItem> {
+  console.log('🎵 Generating mock sample for:', prompt);
+  
   // Create a synthetic audio buffer for demonstration
-  const audioContext = new AudioContext();
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
+  
   const sampleRate = audioContext.sampleRate;
   const duration = 2; // 2 seconds
   const numSamples = sampleRate * duration;

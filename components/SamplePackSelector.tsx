@@ -23,6 +23,7 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
   } = useAudioStore();
 
   const handleLoadPack = async (pack: SamplePack) => {
+    console.log('📦 Loading pack:', pack.name, 'Static mode:', config.isStaticMode);
     setLoadingPack(pack.id);
     setLoading(true, `Loading ${pack.name} sample pack...`);
     
@@ -45,9 +46,11 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
           
           if (config.isStaticMode) {
             // Use static sample generation for GitHub Pages
+            console.log('🔄 Generating static sample:', sample.name);
             libraryItem = await generateStaticSample(sample.prompt);
             // Override with pack-specific naming
             libraryItem.name = sample.name;
+            console.log('✅ Generated static sample:', libraryItem.name);
           } else {
             // Use backend API for full deployment
             const response = await axios.post(`${apiUrl}/generate`, {

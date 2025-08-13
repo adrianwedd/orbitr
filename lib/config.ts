@@ -3,11 +3,19 @@
  * Handles environment variables and configuration management
  */
 
+const isStaticMode = process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL;
+
+console.log('🔧 Config:', {
+  NODE_ENV: process.env.NODE_ENV,
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  isStaticMode
+});
+
 export const config = {
   // API Configuration  
   apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  // GitHub Pages mode - no backend available
-  isStaticMode: process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL,
+  // GitHub Pages mode - no backend available when no API URL is explicitly set
+  isStaticMode,
   
   // Audio Configuration
   maxAudioFileSize: parseInt(process.env.NEXT_PUBLIC_MAX_AUDIO_FILE_SIZE || '52428800'), // 50MB
