@@ -76,8 +76,37 @@ cp .env.example .env
 5. **Run the application**
 ```bash
 npm run dev
-# App will be available at http://localhost:3000
+# Frontend: http://localhost:3001
+# Backend: http://localhost:8000
+
+# Or run individually:
+npm run dev:frontend  # Frontend only
+npm run dev:backend   # Backend only
 ```
+
+## 🚀 Quick Deploy to GitHub Pages
+
+ORBITR works perfectly on GitHub Pages with enhanced sample packs:
+
+```bash
+# Build static version
+npm run build:static
+
+# Or just push to main branch for automatic deployment
+git push origin main
+```
+
+**Features on GitHub Pages:**
+- ✅ Full 4-track sequencer (O-R-B-I rings)  
+- ✅ Detroit/Berlin 90s sample packs 🔥
+- ✅ UK Garage skippy beats
+- ✅ Web Audio API polyphonic playback
+- ✅ Drag & drop file upload
+- ✅ Intelligent mock AI generation
+
+**Live Demo:** `https://yourusername.github.io/orbitr`
+
+> See [DEPLOYMENT.md](./DEPLOYMENT.md) for full deployment options including real AI generation.
 
 ## 🎮 How to Use
 

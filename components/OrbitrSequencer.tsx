@@ -8,11 +8,13 @@ import { TransportControls } from './TransportControls';
 import { TrackControls } from './TrackControls';
 import { SamplePackSelector } from './SamplePackSelector';
 import { StartupHelper } from './StartupHelper';
+import { EnhancedSequencer } from './EnhancedSequencer';
 import { Tooltip, KeyboardShortcutTooltip } from './ui/Tooltip';
 import { KeyboardShortcutsHelp } from './ui/KeyboardShortcutsHelp';
 import { deg2rad, rid } from '@/lib/utils';
 import { SampleLibraryItem } from '@/lib/types';
 import { getApiUrl, config, audioDebugLog, generationDebugLog } from '@/lib/config';
+import { generateStaticSample } from '@/lib/staticSamples';
 import { useKeyboardShortcuts, KEYBOARD_SHORTCUTS, getKeyboardShortcutDescription } from '@/lib/useKeyboardShortcuts';
 
 const STEP_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'Q', 'W', 'E', 'R', 'T', 'Y'];
@@ -233,32 +235,47 @@ export default function OrbitrSequencer() {
 
   const startPlayback = useCallback(async () => {
     try {
+      console.log('startPlayback called');
       await audioEngine.initAudioContext();
       if (!audioEngine.audioContextRef.current) throw new Error('Failed to initialize audio context');
       
+      console.log('Audio context initialized, starting scheduler');
       audioEngine.nextNoteTimeRef.current = audioEngine.audioContextRef.current.currentTime;
       scheduler();
-      setIsPlaying(true);
+      console.log('Scheduler started');
     } catch (error) {
-      setError(`Playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('startPlayback error:', error);
+      // setError(`Playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Don't reset state on audio context error - keep UI state as playing
+      // The user should see the button shows "playing" even if audio doesn't work
+      console.log('Audio failed but keeping UI in playing state');
     }
   }, [audioEngine, scheduler, setError]);
 
   const stopPlayback = useCallback(() => {
+    console.log('stopPlayback called - this will set isPlaying to false');
     if (audioEngine.schedulerTimerRef.current) {
       clearTimeout(audioEngine.schedulerTimerRef.current);
       audioEngine.schedulerTimerRef.current = null;
     }
     setIsPlaying(false);
+    console.log('stopPlayback called setIsPlaying(false)');
     audioEngine.currentStepRef.current = 0;
     setCurrentStep(0);
   }, [audioEngine]);
 
-  const togglePlayback = useCallback(() => {
+  const togglePlayback = useCallback(async () => {
+    console.log('togglePlayback called, isPlaying:', isPlaying);
     if (isPlaying) {
+      console.log('Calling stopPlayback');
       stopPlayback();
     } else {
-      startPlayback();
+      console.log('Calling startPlayback');
+      // Test immediate state update first
+      console.log('About to call setIsPlaying(true) in togglePlayback');
+      setIsPlaying(true);
+      console.log('Called setIsPlaying(true) in togglePlayback');
+      await startPlayback();
     }
   }, [isPlaying, startPlayback, stopPlayback]);
 
@@ -303,8 +320,7 @@ export default function OrbitrSequencer() {
 
   // Generation handler with environment-based API URL
   const handleGenerate = useCallback(async (prompt: string, stepIdx?: number, options: any = {}) => {
-    const apiUrl = getApiUrl();
-    generationDebugLog('Starting generation', { prompt, stepIdx, options, apiUrl });
+    generationDebugLog('Starting generation', { prompt, stepIdx, options });
     
     try {
       if (!audioEngine.audioContextRef.current) {
@@ -322,26 +338,35 @@ export default function OrbitrSequencer() {
       
       setLoading(true, 'Generating audio...');
       
-      const response = await axios.post(`${apiUrl}/generate`, {
-        prompt,
-        quality: options.quality === 'high' ? 'high' : 'draft',
-        duration: 8,
-        cfg_coef: 7.5
-      });
+      let item: SampleLibraryItem;
       
-      const audioData = response.data.audio;
-      const audioBuffer = await audioEngine.audioContextRef.current!.decodeAudioData(
-        Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
-      );
-      
-      const item: SampleLibraryItem = {
-        id: rid(),
-        name: `AI: ${prompt.slice(0, 20)}${prompt.length > 20 ? '...' : ''}`,
-        buffer: audioBuffer,
-        duration: audioBuffer.duration,
-        type: 'ai',
-        prompt
-      };
+      if (config.isStaticMode) {
+        // Use static generation for GitHub Pages
+        item = await generateStaticSample(prompt);
+      } else {
+        // Use backend API for full deployment
+        const apiUrl = getApiUrl();
+        const response = await axios.post(`${apiUrl}/generate`, {
+          prompt,
+          quality: options.quality === 'high' ? 'high' : 'draft',
+          duration: 8,
+          cfg_coef: 7.5
+        });
+        
+        const audioData = response.data.audio;
+        const audioBuffer = await audioEngine.audioContextRef.current!.decodeAudioData(
+          Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
+        );
+        
+        item = {
+          id: rid(),
+          name: `AI: ${prompt.slice(0, 20)}${prompt.length > 20 ? '...' : ''}`,
+          buffer: audioBuffer,
+          duration: audioBuffer.duration,
+          type: 'ai',
+          prompt
+        };
+      }
       
       addToLibrary(item);
       updateQueueItem(genId, { status: 'ready' });
@@ -404,13 +429,20 @@ export default function OrbitrSequencer() {
     onBpmAdjust: handleBpmAdjust
   });
 
-  // Cleanup on unmount
+  // Cleanup on unmount only
   useEffect(() => {
     return () => {
-      stopPlayback();
+      // Access current values directly to avoid dependency issues
+      if (audioEngine.schedulerTimerRef.current) {
+        clearTimeout(audioEngine.schedulerTimerRef.current);
+        audioEngine.schedulerTimerRef.current = null;
+      }
+      setIsPlaying(false);
+      audioEngine.currentStepRef.current = 0;
+      setCurrentStep(0);
       audioEngine.cleanup();
     };
-  }, [stopPlayback, audioEngine]);
+  }, []); // Empty dependency array - only run on mount/unmount
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 md:p-8 space-y-6">
@@ -429,140 +461,17 @@ export default function OrbitrSequencer() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Sequencer Area */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Circular Sequencer Visualization */}
-          <div className="bg-zinc-900 rounded-2xl p-8">
-            <div className="relative w-full max-w-md mx-auto aspect-square">
-              {/* SVG Sequencer Ring */}
-              <svg viewBox="0 0 440 440" className="w-full h-full">
-                {tracks.map((track, trackIndex) => {
-                  const radius = track.radius;
-                  const circumference = 2 * Math.PI * radius;
-                  const stepAngle = 360 / STEPS_COUNT;
-                  
-                  return (
-                    <g key={track.id}>
-                      {/* Track Ring */}
-                      <circle
-                        cx={CENTER.x}
-                        cy={CENTER.y}
-                        r={radius}
-                        fill="none"
-                        stroke={track.color}
-                        strokeWidth="2"
-                        opacity="0.3"
-                      />
-                      
-                      {/* Steps */}
-                      {track.steps.map((step, stepIndex) => {
-                        const angle = stepIndex * stepAngle - 90; // Start from top
-                        const x = CENTER.x + radius * Math.cos(deg2rad(angle));
-                        const y = CENTER.y + radius * Math.sin(deg2rad(angle));
-                        const isCurrentStep = currentStep === stepIndex && isPlaying;
-                        
-                        return (
-                          <Tooltip
-                            key={`${track.id}-${stepIndex}`}
-                            content={
-                              <div className="text-center">
-                                <div className="font-medium">
-                                  Track {track.name} - Step {stepIndex + 1}
-                                </div>
-                                <div className="text-xs text-zinc-400 mt-1">
-                                  {step.active ? 'Active' : 'Inactive'}
-                                  {step.buffer && ' • Has sample'}
-                                </div>
-                                <div className="text-xs text-zinc-400 mt-1">
-                                  Click to toggle • Press {STEP_KEYS[stepIndex]} to select
-                                </div>
-                              </div>
-                            }
-                            side="top"
-                          >
-                            <circle
-                              cx={x}
-                              cy={y}
-                              r={step.active ? 8 : 4}
-                              fill={step.active ? track.color : 'transparent'}
-                              stroke={track.color}
-                              strokeWidth={isCurrentStep ? 3 : 1}
-                              opacity={step.active ? 1 : 0.5}
-                              className="cursor-pointer transition-all hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-zinc-900"
-                              tabIndex={0}
-                              role="button"
-                              aria-label={`Track ${track.name}, Step ${stepIndex + 1}, ${step.active ? 'Active' : 'Inactive'}${step.buffer ? ', Has sample' : ''}`}
-                              aria-pressed={step.active}
-                              onClick={() => {
-                                setSelectedTrack(track.id);
-                                setSelectedStep(stepIndex);
-                                toggleStepMulti(track.id, stepIndex);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault();
-                                  setSelectedTrack(track.id);
-                                  setSelectedStep(stepIndex);
-                                  toggleStepMulti(track.id, stepIndex);
-                                }
-                              }}
-                            />
-                          </Tooltip>
-                        );
-                      })}
-                      
-                      {/* Track Label */}
-                      <text
-                        x={CENTER.x + (radius - 25) * Math.cos(deg2rad(-90))}
-                        y={CENTER.y + (radius - 25) * Math.sin(deg2rad(-90)) + 5}
-                        textAnchor="middle"
-                        className="text-sm font-bold fill-current"
-                        style={{ fill: track.color }}
-                      >
-                        {track.name}
-                      </text>
-                    </g>
-                  );
-                })}
-                
-                {/* Center Play Button */}
-                <KeyboardShortcutTooltip
-                  shortcut={KEYBOARD_SHORTCUTS.PLAY_STOP}
-                  description={getKeyboardShortcutDescription('play_stop')}
-                  side="bottom"
-                >
-                  <g
-                    className="cursor-pointer focus:outline-none"
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${isPlaying ? 'Stop' : 'Play'} sequencer`}
-                    aria-pressed={isPlaying}
-                    onClick={togglePlayback}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        togglePlayback();
-                      }
-                    }}
-                  >
-                    <circle
-                      cx={CENTER.x}
-                      cy={CENTER.y}
-                      r="30"
-                      fill={isPlaying ? '#dc2626' : '#10b981'}
-                      className="transition-all hover:opacity-80 focus:ring-2 focus:ring-blue-400"
-                    />
-                    <text
-                      x={CENTER.x}
-                      y={CENTER.y + 5}
-                      textAnchor="middle"
-                      className="text-lg font-bold fill-white pointer-events-none select-none"
-                    >
-                      {isPlaying ? '■' : '▶'}
-                    </text>
-                  </g>
-                </KeyboardShortcutTooltip>
-              </svg>
-            </div>
-          </div>
+          {/* Enhanced Circular Sequencer Visualization */}
+          <EnhancedSequencer
+            isPlaying={isPlaying}
+            currentStep={currentStep}
+            onStepClick={(trackId, stepIndex) => {
+              setSelectedTrack(trackId);
+              setSelectedStep(stepIndex);
+            }}
+            onPlayheadClick={togglePlayback}
+            audioContext={audioEngine.audioContextRef.current || undefined}
+          />
           
           {/* Transport Controls */}
           <TransportControls

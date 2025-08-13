@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tooltip, KeyboardShortcutTooltip } from './ui/Tooltip';
 import { KEYBOARD_SHORTCUTS, getKeyboardShortcutDescription } from '@/lib/useKeyboardShortcuts';
 
@@ -27,6 +27,10 @@ export function TransportControls({
   masterGain,
   onMasterGainChange
 }: TransportControlsProps) {
+  useEffect(() => {
+    console.log('TransportControls: isPlaying prop changed to:', isPlaying);
+  }, [isPlaying]);
+
   return (
     <div className="mt-6 space-y-4">
       {/* Main transport */}
@@ -37,7 +41,10 @@ export function TransportControls({
           side="top"
         >
           <button
-            onClick={onPlayStop}
+            onClick={() => {
+              console.log('TransportControls onClick called, current isPlaying:', isPlaying);
+              onPlayStop();
+            }}
             className={`px-8 py-3 rounded-xl font-bold text-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 ${
               isPlaying
                 ? "bg-red-600 hover:bg-red-700 text-white focus:ring-red-400"

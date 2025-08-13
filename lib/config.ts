@@ -4,8 +4,10 @@
  */
 
 export const config = {
-  // API Configuration
+  // API Configuration  
   apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  // GitHub Pages mode - no backend available
+  isStaticMode: process.env.NODE_ENV === 'production' && !process.env.NEXT_PUBLIC_API_URL,
   
   // Audio Configuration
   maxAudioFileSize: parseInt(process.env.NEXT_PUBLIC_MAX_AUDIO_FILE_SIZE || '52428800'), // 50MB

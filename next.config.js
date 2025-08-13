@@ -9,6 +9,15 @@ const nextConfig = {
     };
     return config;
   },
+  // GitHub Pages configuration
+  output: process.env.NODE_ENV === 'production' ? 'export' : undefined,
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
+  // Set base path for GitHub Pages (uncomment and customize for your repo)
+  // basePath: process.env.NODE_ENV === 'production' ? '/orbitr' : '',
+  // assetPrefix: process.env.NODE_ENV === 'production' ? '/orbitr/' : '',
 }
 
 module.exports = nextConfig
