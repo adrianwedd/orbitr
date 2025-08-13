@@ -15,9 +15,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Set base path for GitHub Pages (uncomment and customize for your repo)
-  // basePath: process.env.NODE_ENV === 'production' ? '/orbitr' : '',
-  // assetPrefix: process.env.NODE_ENV === 'production' ? '/orbitr/' : '',
+  // Set base path for GitHub Pages
+  basePath: process.env.NODE_ENV === 'production' ? '/orbitr' : '',
+  assetPrefix: process.env.NODE_ENV === 'production' ? '/orbitr/' : '',
 }
 
 module.exports = nextConfig
