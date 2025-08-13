@@ -23,13 +23,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Architecture
 
-### Frontend Structure
+### Frontend Structure  
 - **Next.js 14** with React 18, TypeScript, and Tailwind CSS
-- **State Management**: Zustand store (`lib/audioStore.ts`) manages sequencer state, sample library, and generation queue
-- **Audio Processing**: Web Audio API for real-time audio scheduling with precise timing
+- **State Management**: Multi-track Zustand store (`lib/audioStore.ts`) manages 4 concentric tracks, sample library, and generation queue
+- **Audio Processing**: Polyphonic Web Audio API scheduling with independent gain chains per track
 - **Components**:
-  - `OrbitrSequencer.tsx` - Main circular sequencer with 16-step pattern, playhead animation, and Web Audio scheduling
-  - `StepEditor.tsx` - Per-step controls (gain, probability, AI prompts)
+  - `OrbitrSequencer.tsx` - Multi-track circular sequencer with 4 concentric rings (O-R-B-I), visual track selection, and polyphonic playback
+  - `TrackControls.tsx` - Vertical ORBITR track selector with volume, mute, solo controls
+  - `StepEditor.tsx` - Per-step controls (gain, probability, AI prompts) 
   - `SampleLibrary.tsx` - Sample management with drag-and-drop support
   - `TransportControls.tsx` - BPM, swing, reverse, and master gain controls
   - `GenerationQueue.tsx` - AI generation status and progress tracking
@@ -45,17 +46,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `GET /cache/size` and `GET /cache/clear` - Cache management
 
 ### Key Technical Details
-- **Audio Scheduling**: Uses Web Audio API with 0.1s lookahead for tight timing
-- **Sequencer Pattern**: 16-step circular layout with probability-based triggering
+- **Multi-Track Audio**: 4 concentric tracks with polyphonic playback, independent volume/mute/solo controls
+- **Audio Scheduling**: Uses Web Audio API with 0.1s lookahead for precise polyphonic timing
+- **Sequencer Pattern**: 16-step circular layout per track with probability-based triggering
 - **Sample Format**: Base64-encoded WAV files for transport between frontend/backend
-- **State Synchronization**: Zustand manages complex state including audio buffers, generation queue, and library
+- **State Synchronization**: Multi-track Zustand store manages complex state including track data, audio buffers, generation queue, and library
+- **AI Sample Packs**: 5 curated packs (Lo-Fi, Techno, Trap, House, Ambient) with strategic multi-track placement
 
 ### Audio Engine Implementation
-- Real-time audio scheduling with swing support (up to 30% offset)
-- Per-step gain and probability controls
-- Reverse playback capability
-- Master gain control with WebAudio gain nodes
-- AudioBuffer management for sample playback
+- **Polyphonic playback**: All tracks play simultaneously with independent gain chains
+- **Real-time scheduling**: Web Audio API with swing support (up to 30% offset)
+- **Track controls**: Per-track volume, mute, solo with proper audio routing
+- **Per-step controls**: Gain and probability controls per step
+- **Reverse playback**: Capability across all tracks
+- **Master gain**: Control with WebAudio gain nodes
+- **AudioBuffer management**: Efficient sample playback across multiple tracks
 
 ### AI Generation Workflow
 1. Check cache for existing sample using MD5 key of generation parameters
@@ -84,6 +89,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Concurrent generation support with staggered requests
 
 ### Backend Dependencies
-- Requires AudioCraft for real AI generation (falls back to fake audio if not installed)
-- CUDA support recommended for faster generation
+- Uses MusicGen via Transformers library for real AI generation (falls back to fake audio if not installed)
+- CUDA support recommended for faster generation  
 - ThreadPoolExecutor for CPU-bound operations
+- File-based caching with MD5 keys for instant sample recall
+
+## Multi-Track Architecture
+
+### Track Configuration
+```typescript
+// 4 concentric tracks with different radii and colors
+const tracks = [
+  createTrack('track1', 'O', 180, '#ef4444'), // Red - Outer ring
+  createTrack('track2', 'R', 150, '#3b82f6'), // Blue
+  createTrack('track3', 'B', 120, '#10b981'), // Green  
+  createTrack('track4', 'I', 90,  '#f59e0b'), // Yellow - Inner ring
+];
+```
+
+### Keyboard Shortcuts
+- `Space` - Play/Stop
+- `G` - Generate sample for selected step
+- `C` - Clear selected step
+- `R` - Toggle reverse
+- `1-9, 0, Q-Y` - Select steps 1-16
+- `← →` - Adjust BPM
+
+### Testing Infrastructure
+- **Frontend**: Jest + React Testing Library with comprehensive audioStore tests
+- **Backend**: pytest + FastAPI TestClient with API endpoint coverage
+- **CI/CD**: GitHub Actions with automated testing and build verification

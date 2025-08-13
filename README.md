@@ -4,6 +4,8 @@ A web-based circular step sequencer inspired by Playtronica's Orbita, featuring 
 
 ![Orbitr AI Sequencer](https://img.shields.io/badge/status-beta-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+![GitHub Stars](https://img.shields.io/github/stars/adrianwedd/orbitr?style=social)
+![GitHub Forks](https://img.shields.io/github/forks/adrianwedd/orbitr?style=social)
 
 ## ✨ Features
 
@@ -38,8 +40,8 @@ A web-based circular step sequencer inspired by Playtronica's Orbita, featuring 
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/orbitr-ai-sequencer.git
-cd orbitr-ai-sequencer
+git clone https://github.com/adrianwedd/orbitr.git
+cd orbitr
 ```
 
 2. **Install frontend dependencies**
@@ -128,7 +130,7 @@ Choose from 5 curated packs:
 ## 🏗️ Architecture
 
 ```
-orbitr-ai-sequencer/
+orbitr/
 ├── app/                      # Next.js app directory
 ├── components/               # React components
 │   ├── OrbitrSequencer.tsx  # Main multi-track sequencer
