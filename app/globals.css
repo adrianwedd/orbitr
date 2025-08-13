@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* Custom range slider styles */
+input[type="range"] {
+  @apply appearance-none bg-zinc-700 rounded-full h-2 cursor-pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  @apply appearance-none w-4 h-4 bg-emerald-500 rounded-full cursor-pointer transition-all hover:bg-emerald-400;
+}
+
+input[type="range"]::-moz-range-thumb {
+  @apply w-4 h-4 bg-emerald-500 rounded-full cursor-pointer border-0 transition-all hover:bg-emerald-400;
+}
+
+/* Animation for generating samples */
+@keyframes generating-pulse {
+  0%, 100% { 
+    stroke: rgb(34 197 94);
+    stroke-width: 2;
+  }
+  50% { 
+    stroke: rgb(168 85 247);
+    stroke-width: 4;
+  }
+}
+
+.generating {
+  animation: generating-pulse 1.5s ease-in-out infinite;
+}
