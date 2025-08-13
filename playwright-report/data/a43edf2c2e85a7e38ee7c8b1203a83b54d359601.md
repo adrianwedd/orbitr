@@ -1,0 +1,147 @@
+# Page snapshot
+
+```yaml
+- main:
+  - heading "ORBITR" [level=1]
+  - paragraph: Multi-track circular sequencer with AI sample generation
+  - button "Show keyboard shortcuts": "?"
+  - img: O R B I ■
+  - text: Bass Mid Treble Energy
+  - button "Stop sequencer" [pressed]: ■ Stop
+  - checkbox "Toggle reverse playback"
+  - text: Reverse BPM
+  - 'slider "Tempo: 120 BPM"': "120"
+  - text: 120 Swing
+  - 'slider "Swing: 0%"': "0"
+  - text: 0% Master
+  - 'slider "Master volume: 90%"': "0.9"
+  - text: "0.90"
+  - button "Select track O" [pressed]: O
+  - button "Select track R": R
+  - button "Select track B": B
+  - button "Select track I": I
+  - text: Track O Volume
+  - 'slider "Track O volume: 80%"': "0.8"
+  - text: 80%
+  - button "Mute track O": MUTE
+  - button "Solo track O": SOLO
+  - button "Clear all samples from track O": Clear Track
+  - heading "AI Sample Packs" [level=2]
+  - text: 17 curated packs
+  - heading "Lo-Fi" [level=3]
+  - paragraph: Warm, nostalgic lo-fi beats and textures
+  - button "Load Pack"
+  - text: ▼
+  - heading "Techno" [level=3]
+  - paragraph: Industrial techno beats and synthesized elements
+  - button "Load Pack"
+  - text: ▼
+  - heading "Trap" [level=3]
+  - paragraph: Modern trap drums and 808 elements
+  - button "Load Pack"
+  - text: ▼
+  - heading "House" [level=3]
+  - paragraph: Classic house grooves and dance elements
+  - button "Load Pack"
+  - text: ▼
+  - heading "Ambient" [level=3]
+  - paragraph: Atmospheric textures and ambient soundscapes
+  - button "Load Pack"
+  - text: ▼
+  - heading "Detroit" [level=3]
+  - paragraph: Classic Detroit techno with Motor City soul and 90s analog warmth
+  - button "Load Pack"
+  - text: ▼
+  - heading "Berlin" [level=3]
+  - paragraph: Dark Berlin underground techno with 90s warehouse atmosphere
+  - button "Load Pack"
+  - text: ▼
+  - heading "UK Garage" [level=3]
+  - paragraph: 90s UK garage with skippy beats and bass weight
+  - button "Load Pack"
+  - text: ▼
+  - heading "Chicago House" [level=3]
+  - paragraph: Original Chicago house with 808 drums and classic stabs
+  - button "Load Pack"
+  - text: ▼
+  - heading "Jungle" [level=3]
+  - paragraph: 90s jungle with chopped breaks and sub-bass
+  - button "Load Pack"
+  - text: ▼
+  - heading "Drum & Bass" [level=3]
+  - paragraph: Liquid and hard D&B with tight breaks
+  - button "Load Pack"
+  - text: ▼
+  - heading "Breakbeat" [level=3]
+  - paragraph: Classic breakbeat with funky breaks and samples
+  - button "Load Pack"
+  - text: ▼
+  - heading "Acid" [level=3]
+  - paragraph: TB-303 acid sounds with squelchy resonance
+  - button "Load Pack"
+  - text: ▼
+  - heading "Minimal" [level=3]
+  - paragraph: Minimal techno with subtle textures and space
+  - button "Load Pack"
+  - text: ▼
+  - heading "Dub" [level=3]
+  - paragraph: Dub techno with deep echoes and analog warmth
+  - button "Load Pack"
+  - text: ▼
+  - heading "Trance" [level=3]
+  - paragraph: Classic trance with emotional leads and pumping beats
+  - button "Load Pack"
+  - text: ▼
+  - heading "Experimental" [level=3]
+  - paragraph: Avant-garde sounds and unconventional textures
+  - button "Load Pack"
+  - text: ▼
+  - paragraph: Sample packs provide curated AI prompts designed for multi-track arrangement. Individual samples auto-assign to suggested tracks for quick setup.
+  - heading "Step Editor" [level=2]
+  - text: Step
+  - combobox "Select step to edit":
+    - option "Step 1" [selected]
+    - option "Step 2"
+    - option "Step 3"
+    - option "Step 4"
+    - option "Step 5"
+    - option "Step 6"
+    - option "Step 7"
+    - option "Step 8"
+    - option "Step 9"
+    - option "Step 10"
+    - option "Step 11"
+    - option "Step 12"
+    - option "Step 13"
+    - option "Step 14"
+    - option "Step 15"
+    - option "Step 16"
+  - text: Assigned Sample
+  - combobox "Assign sample to step 1":
+    - option "— Choose from library —" [disabled] [selected]
+  - button "Activate step 1": "OFF"
+  - text: Gain
+  - 'slider "Step 1 gain: 90%"': "0.9"
+  - text: 0.90 Probability
+  - 'slider "Step 1 probability: 100%"': "1"
+  - text: 100% AI Prompt
+  - textbox "AI prompt for step 1"
+  - button "Generate draft quality sample" [disabled]: Draft
+  - button "Generate high quality sample" [disabled]: HQ
+  - paragraph: "Draft: Fast generation (small model) • HQ: High quality (melody model)"
+  - group: Advanced Options ▸
+  - heading "Sample Library" [level=2]
+  - text: 0 samples 0%
+  - button "Clear cache" [disabled]: Clear
+  - paragraph: Drop audio files here
+  - paragraph: or click to browse
+  - paragraph: WAV, MP3, OGG, WebM, AAC • Max 50MB
+  - paragraph: "Failed to generate Jazz Stab: Network Error. Please check your backend connection."
+  - button "Dismiss"
+  - text: No samples loaded yet
+  - paragraph: Failed to fetch cache information
+  - heading "Generation Queue" [level=2]
+  - text: No generations yet
+  - paragraph: "Using MusicGen backend • Draft: melody model • HQ: large model"
+- alert
+```
