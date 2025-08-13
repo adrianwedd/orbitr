@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { SAMPLE_PACKS, SamplePack, createSampleFromPack } from '@/lib/samplePacks';
 import { useAudioStore } from '@/lib/audioStore';
 import { Tooltip } from './ui/Tooltip';
-import { getApiUrl } from '@/lib/config';
+import { getApiUrl, config } from '@/lib/config';
+import { generateStaticSample } from '@/lib/staticSamples';
 import axios from 'axios';
 
 interface SamplePackSelectorProps {
@@ -40,19 +41,29 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
         try {
           setLoading(true, `Generating ${sample.name}... (${i + 1}/${pack.samples.length})`);
           
-          const response = await axios.post(`${apiUrl}/generate`, {
-            prompt: sample.prompt,
-            quality: 'draft', // Use draft quality for quick pack generation
-            duration: 8,
-            cfg_coef: 7.5
-          });
+          let libraryItem;
+          
+          if (config.isStaticMode) {
+            // Use static sample generation for GitHub Pages
+            libraryItem = await generateStaticSample(sample.prompt);
+            // Override with pack-specific naming
+            libraryItem.name = sample.name;
+          } else {
+            // Use backend API for full deployment
+            const response = await axios.post(`${apiUrl}/generate`, {
+              prompt: sample.prompt,
+              quality: 'draft', // Use draft quality for quick pack generation
+              duration: 8,
+              cfg_coef: 7.5
+            });
 
-          const audioData = response.data.audio;
-          const audioBuffer = await audioContext.decodeAudioData(
-            Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
-          );
+            const audioData = response.data.audio;
+            const audioBuffer = await audioContext.decodeAudioData(
+              Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
+            );
 
-          const libraryItem = createSampleFromPack(pack, i, audioBuffer);
+            libraryItem = createSampleFromPack(pack, i, audioBuffer);
+          }
           addToLibrary(libraryItem);
 
           // Auto-assign to suggested track and first available step
@@ -93,21 +104,31 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
         await audioContext.resume();
       }
 
-      const apiUrl = getApiUrl();
+      let libraryItem;
       
-      const response = await axios.post(`${apiUrl}/generate`, {
-        prompt: sample.prompt,
-        quality: 'draft',
-        duration: 8,
-        cfg_coef: 7.5
-      });
+      if (config.isStaticMode) {
+        // Use static sample generation for GitHub Pages
+        libraryItem = await generateStaticSample(sample.prompt);
+        // Override with pack-specific naming
+        libraryItem.name = sample.name;
+      } else {
+        // Use backend API for full deployment
+        const apiUrl = getApiUrl();
+        
+        const response = await axios.post(`${apiUrl}/generate`, {
+          prompt: sample.prompt,
+          quality: 'draft',
+          duration: 8,
+          cfg_coef: 7.5
+        });
 
-      const audioData = response.data.audio;
-      const audioBuffer = await audioContext.decodeAudioData(
-        Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
-      );
+        const audioData = response.data.audio;
+        const audioBuffer = await audioContext.decodeAudioData(
+          Uint8Array.from(atob(audioData), c => c.charCodeAt(0)).buffer
+        );
 
-      const libraryItem = createSampleFromPack(pack, sampleIndex, audioBuffer);
+        libraryItem = createSampleFromPack(pack, sampleIndex, audioBuffer);
+      }
       addToLibrary(libraryItem);
 
       // Auto-assign to suggested track
