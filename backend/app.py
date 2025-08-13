@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from scipy.io import wavfile
 import uvicorn
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -34,21 +34,26 @@ from slowapi.middleware import SlowAPIMiddleware
 import bleach
 import validators
 from dotenv import load_dotenv
+from security_config import security_config, SecurityLevel
+from security_middleware import (
+    SecurityMiddleware, AuthenticationMiddleware, RateLimitMiddleware,
+    get_security_metrics, security_logger
+)
 
 # Load environment variables
 load_dotenv()
 
-# Security configuration
-API_KEY = os.getenv("API_KEY", "dev-key-change-in-production")
-GENERATION_RATE_LIMIT = int(os.getenv("GENERATION_RATE_LIMIT", "10"))
-CACHE_RATE_LIMIT = int(os.getenv("CACHE_RATE_LIMIT", "30"))
-HEALTH_RATE_LIMIT = int(os.getenv("HEALTH_RATE_LIMIT", "60"))
-MAX_GENERATION_DURATION = float(os.getenv("MAX_GENERATION_DURATION", "5.0"))
-MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "500"))
-MAX_CONCURRENT_GENERATIONS = int(os.getenv("MAX_CONCURRENT_GENERATIONS", "3"))
-GENERATION_TIMEOUT = int(os.getenv("GENERATION_TIMEOUT", "30"))
-MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "10485760"))  # 10MB
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+# Use centralized security configuration
+API_KEY = security_config.api_key
+GENERATION_RATE_LIMIT = security_config.rate_limits.generation_limit
+CACHE_RATE_LIMIT = security_config.rate_limits.cache_limit
+HEALTH_RATE_LIMIT = security_config.rate_limits.health_limit
+MAX_GENERATION_DURATION = security_config.max_generation_duration
+MAX_PROMPT_LENGTH = security_config.max_prompt_length
+MAX_CONCURRENT_GENERATIONS = security_config.max_concurrent_generations
+GENERATION_TIMEOUT = security_config.generation_timeout
+MAX_REQUEST_SIZE = security_config.max_request_size
+ENVIRONMENT = security_config.environment.value
 
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
@@ -79,52 +84,49 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Security middleware configuration
+# Enhanced security middleware configuration
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(SecurityMiddleware)
 
-# Configure CORS with security-focused settings
-origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
-origins = [origin.strip() for origin in origins if origin.strip()]
+# Configure CORS with centralized security settings
+cors_config = security_config.get_cors_config()
+app.add_middleware(CORSMiddleware, **cors_config)
 
-if ENVIRONMENT == "production":
-    # Production CORS settings
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=False,  # More secure for production
-        allow_methods=["GET", "POST"],  # Only needed methods
-        allow_headers=["Authorization", "Content-Type"],
-        max_age=600,  # Cache preflight for 10 minutes
-    )
-    # Add trusted host middleware for production
-    trusted_hosts = [url.replace("https://", "").replace("http://", "") for url in origins]
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
-else:
-    # Development CORS settings (more permissive)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# Add trusted host middleware for production
+if security_config.environment == SecurityLevel.PRODUCTION:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=security_config.trusted_hosts)
 
 # Authentication
 security = HTTPBearer(auto_error=False)
 
-async def verify_api_key(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    """Verify API key for protected endpoints"""
-    if ENVIRONMENT == "development" and not credentials:
-        return True  # Allow development without auth
+async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Enhanced API key verification with security logging"""
+    client_ip = request.client.host if hasattr(request, 'client') and hasattr(request.client, 'host') else 'unknown'
+    user_agent = request.headers.get('user-agent', '')
+    
+    # Check API key expiration  
+    if security_config.is_api_key_expired():
+        AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "API key expired")
+        raise HTTPException(status_code=401, detail="API key expired")
+    
+    # Development mode check
+    if (security_config.environment == SecurityLevel.DEVELOPMENT and 
+        not security_config.auth_config.require_auth_in_dev and 
+        not credentials):
+        return True
     
     if not credentials:
+        AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "No credentials provided")
         raise HTTPException(status_code=401, detail="API key required")
     
-    if credentials.credentials != API_KEY:
+    if credentials.credentials != security_config.api_key:
+        AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "Invalid API key")
         raise HTTPException(status_code=401, detail="Invalid API key")
     
+    # Log successful authentication
+    AuthenticationMiddleware.log_auth_success(client_ip, user_agent)
     return True
 
 # Resource management
@@ -150,11 +152,11 @@ def sanitize_text(text: str) -> str:
     if not text:
         return ""
     
-    # Remove HTML tags and entities
-    cleaned = bleach.clean(text, tags=[], attributes={}, strip=True)
+    # Remove non-printable characters first except basic whitespace
+    cleaned = re.sub(r'[^\x20-\x7E\n\r\t]', '', text)
     
-    # Remove non-printable characters except basic whitespace
-    cleaned = re.sub(r'[^\x20-\x7E\n\r\t]', '', cleaned)
+    # Remove HTML tags and entities
+    cleaned = bleach.clean(cleaned, tags=[], attributes={}, strip=True)
     
     # Limit consecutive whitespace
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
@@ -166,27 +168,37 @@ def validate_prompt_content(prompt: str) -> str:
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty")
     
-    sanitized = sanitize_text(prompt)
-    
-    if len(sanitized) > MAX_PROMPT_LENGTH:
-        raise ValueError(f"Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed")
-    
-    # Basic content filtering (extend as needed)
+    # Check original prompt for forbidden patterns before sanitization
     forbidden_patterns = [
         r'<script',
         r'javascript:',
         r'data:',
         r'vbscript:',
+        r'<img[^>]+onerror',
+        r'<iframe',
+        r'<object',
+        r'<embed',
     ]
     
     for pattern in forbidden_patterns:
-        if re.search(pattern, sanitized, re.IGNORECASE):
+        if re.search(pattern, prompt, re.IGNORECASE):
             raise ValueError("Prompt contains forbidden content")
+    
+    sanitized = sanitize_text(prompt)
+    
+    if len(sanitized) > MAX_PROMPT_LENGTH:
+        raise ValueError(f"Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed")
     
     return sanitized
 
-# Enhanced Pydantic models with validation
+# Enhanced Pydantic models with V2 configuration
 class GenerateRequest(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra='forbid'
+    )
+    
     prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH, description="Text prompt for audio generation")
     duration: float = Field(default=1.5, ge=0.1, le=MAX_GENERATION_DURATION, description="Audio duration in seconds")
     quality: str = Field(default="draft", pattern="^(draft|high)$", description="Generation quality level")
@@ -196,37 +208,59 @@ class GenerateRequest(BaseModel):
     top_p: float = Field(default=0.0, ge=0.0, le=1.0, description="Top-p sampling parameter")
     cfg_coef: float = Field(default=3.0, ge=0.1, le=10.0, description="CFG coefficient")
     
-    @validator('prompt')
-    def validate_prompt(cls, v):
+    @field_validator('prompt')
+    @classmethod
+    def validate_prompt(cls, v: str) -> str:
+        if len(v) > MAX_PROMPT_LENGTH:
+            raise ValueError(f"Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed")
         return validate_prompt_content(v)
     
-    @validator('duration')
-    def validate_duration(cls, v):
+    @field_validator('duration')
+    @classmethod
+    def validate_duration(cls, v: float) -> float:
         if v > MAX_GENERATION_DURATION:
             raise ValueError(f"Duration cannot exceed {MAX_GENERATION_DURATION} seconds")
         return v
 
 class BatchGenerateRequest(BaseModel):
-    prompts: List[str] = Field(..., min_items=1, max_items=10, description="List of prompts for batch generation")
-    duration: float = Field(default=1.5, ge=0.1, le=MAX_GENERATION_DURATION)
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        extra='forbid'
+    )
+    
+    prompts: List[str] = Field(..., min_length=1, max_length=10, description="List of prompts for batch generation")
+    duration: float = Field(default=1.5, ge=0.1, le=MAX_GENERATION_DURATION, description="Audio duration in seconds")
     quality: str = Field(default="draft", pattern="^(draft|high)$")
     temperature: float = Field(default=1.0, ge=0.1, le=2.0)
     top_k: int = Field(default=250, ge=1, le=1000)
     top_p: float = Field(default=0.0, ge=0.0, le=1.0)
     cfg_coef: float = Field(default=3.0, ge=0.1, le=10.0)
     
-    @validator('prompts')
-    def validate_prompts(cls, v):
+    @field_validator('prompts')
+    @classmethod
+    def validate_prompts(cls, v: List[str]) -> List[str]:
         validated_prompts = []
         for prompt in v:
+            if len(prompt) > MAX_PROMPT_LENGTH:
+                raise ValueError(f"Prompt too long. Maximum {MAX_PROMPT_LENGTH} characters allowed")
             validated_prompts.append(validate_prompt_content(prompt))
         return validated_prompts
+    
+    @field_validator('duration')
+    @classmethod
+    def validate_duration(cls, v: float) -> float:
+        if v > MAX_GENERATION_DURATION:
+            raise ValueError(f"Duration cannot exceed {MAX_GENERATION_DURATION} seconds")
+        return v
 
 class GenerateResponse(BaseModel):
-    audio: str  # base64 encoded WAV
-    name: str
-    seed: int
-    cached: bool = False
+    model_config = ConfigDict(extra='forbid')
+    
+    audio: str = Field(..., description="Base64 encoded WAV audio")
+    name: str = Field(..., description="Generated sample name")
+    seed: int = Field(..., description="Random seed used for generation")
+    cached: bool = Field(default=False, description="Whether result was served from cache")
 
 def get_cache_key(req: GenerateRequest) -> str:
     """Generate cache key from request parameters"""
@@ -298,29 +332,15 @@ def audio_to_base64_wav(audio: np.ndarray, sample_rate: int = 32000) -> str:
     # Encode to base64
     return base64.b64encode(buffer.read()).decode('utf-8')
 
-# Security middleware for request size limiting
-@app.middleware("http")
-async def limit_request_size(request: Request, call_next):
-    """Limit request body size to prevent DoS attacks"""
-    if hasattr(request, 'headers'):
-        content_length = request.headers.get('content-length')
-        if content_length and int(content_length) > MAX_REQUEST_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Request too large. Maximum {MAX_REQUEST_SIZE} bytes allowed"
-            )
-    
-    response = await call_next(request)
-    
-    # Add security headers
-    if os.getenv("ENABLE_SECURITY_HEADERS", "true").lower() == "true":
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
-    
-    return response
+# Add security monitoring endpoint
+@app.get("/security/metrics")
+@limiter.limit(f"{HEALTH_RATE_LIMIT//10}/minute")
+async def security_metrics(
+    request: Request,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """Get security metrics (protected endpoint)"""
+    return get_security_metrics()
 
 @app.get("/")
 @limiter.limit(f"{HEALTH_RATE_LIMIT}/minute")
@@ -343,7 +363,7 @@ async def health_check(request: Request):
         "security": {
             "auth_enabled": ENVIRONMENT == "production" or API_KEY != "dev-key-change-in-production",
             "rate_limiting_enabled": True,
-            "cors_configured": len(origins) > 0,
+            "cors_configured": len(security_config.cors_origins) > 0,
             "request_size_limited": True
         },
         "resources": {
