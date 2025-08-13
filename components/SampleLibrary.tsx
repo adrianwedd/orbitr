@@ -287,6 +287,11 @@ export function SampleLibrary({ library, onFileUpload }: SampleLibraryProps) {
                     AI
                   </span>
                 )}
+                {item.packName && (
+                  <span className="text-xs px-1.5 py-0.5 bg-emerald-900 text-emerald-300 rounded">
+                    {item.packName}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 text-xs text-zinc-500 mt-1">
                 <span>{item.duration.toFixed(2)}s</span>

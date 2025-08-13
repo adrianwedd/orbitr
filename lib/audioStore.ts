@@ -48,7 +48,7 @@ interface AudioStore {
   clearQueue: () => void;
   addToGenerationQueue: (item: GenerationQueueItem) => void; // Alias for addToQueue
   removeFromGenerationQueue: (id: string) => void; // Alias for removeFromQueue
-  updateGenerationProgress: (id: string, progress: number, status: string) => void;
+  updateGenerationProgress: (id: string, progress: number, status: 'queued' | 'generating' | 'ready' | 'error') => void;
   
   // Playback Actions
   setCurrentStep: (step: number) => void;

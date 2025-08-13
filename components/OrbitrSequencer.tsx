@@ -6,6 +6,8 @@ import { SampleLibrary } from './SampleLibrary';
 import { GenerationQueue } from './GenerationQueue';
 import { TransportControls } from './TransportControls';
 import { TrackControls } from './TrackControls';
+import { SamplePackSelector } from './SamplePackSelector';
+import { StartupHelper } from './StartupHelper';
 import { Tooltip, KeyboardShortcutTooltip } from './ui/Tooltip';
 import { KeyboardShortcutsHelp } from './ui/KeyboardShortcutsHelp';
 import { deg2rad, rid } from '@/lib/utils';
@@ -97,7 +99,6 @@ export default function OrbitrSequencer() {
   const audioEngine = useAudioEngine();
 
   const {
-    track,
     tracks,
     library,
     genQueue,
@@ -124,6 +125,15 @@ export default function OrbitrSequencer() {
     setError,
     clearError
   } = useAudioStore();
+
+  // Get current track's steps
+  const currentTrackSteps = useMemo(() => {
+    if (selectedTrack) {
+      const track = tracks.find(t => t.id === selectedTrack);
+      return track?.steps || [];
+    }
+    return tracks[0]?.steps || [];
+  }, [tracks, selectedTrack]);
 
   // Audio scheduling functions
   const scheduleNote = useCallback((buffer: AudioBuffer, time: number, gain: number = 1) => {
@@ -314,9 +324,9 @@ export default function OrbitrSequencer() {
       
       const response = await axios.post(`${apiUrl}/generate`, {
         prompt,
-        model: options.quality === 'high' ? 'melody' : 'small',
+        quality: options.quality === 'high' ? 'high' : 'draft',
         duration: 8,
-        guidance_scale: 7.5
+        cfg_coef: 7.5
       });
       
       const audioData = response.data.audio;
@@ -588,9 +598,17 @@ export default function OrbitrSequencer() {
             onClearTrack={clearTrack}
           />
           
+          {/* AI Sample Packs */}
+          <SamplePackSelector
+            onPackLoad={(packId) => {
+              // Optional: Show success message or auto-switch to library view
+              console.log(`Loaded sample pack: ${packId}`);
+            }}
+          />
+          
           {/* Step Editor */}
           <StepEditor
-            steps={track}
+            steps={currentTrackSteps}
             onStepChange={updateStep}
             onAssign={assignToStep}
             onGenerate={handleGenerate}
@@ -615,6 +633,9 @@ export default function OrbitrSequencer() {
         {/* Generation Queue */}
         <GenerationQueue queue={genQueue} />
       </div>
+      
+      {/* Startup Helper */}
+      <StartupHelper />
     </div>
   );
 }

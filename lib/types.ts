@@ -29,6 +29,8 @@ export interface SampleLibraryItem {
   type: 'local' | 'ai';
   prompt?: string;
   seed?: number;
+  packId?: string;
+  packName?: string;
 }
 
 export interface GenerationQueueItem {
