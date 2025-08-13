@@ -204,24 +204,34 @@ export default function OrbitrSequencer() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedStep, selectedTrack, start, stop, generateSample, clearStepMulti]);
+  }, [isPlaying, selectedStep, selectedTrack]);
 
   // File handling
   const handleFiles = async (files: File[]) => {
     await ensureAudio();
     const ctx = audioCtxRef.current;
     if (!ctx) return;
-    
+
     for (const f of files) {
+      if (f.size > 5 * 1024 * 1024) {
+        alert(`File ${f.name} is too large. Maximum size is 5MB.`);
+        continue;
+      }
+
       const ab = await f.arrayBuffer();
-      const buf = await ctx.decodeAudioData(ab);
-      addToLibrary({
-        id: rid(),
-        name: f.name.replace(/\.[^/.]+$/, ""),
-        buffer: buf,
-        duration: buf.duration,
-        type: 'local'
-      });
+      try {
+        const buf = await ctx.decodeAudioData(ab);
+        addToLibrary({
+          id: rid(),
+          name: f.name.replace(/\.[^/.]+$/, ""),
+          buffer: buf,
+          duration: buf.duration,
+          type: 'local'
+        });
+      } catch (error) {
+        alert(`Error decoding file ${f.name}. Please make sure it is a valid audio file.`);
+        console.error('Error decoding audio data:', error);
+      }
     }
   };
 
@@ -357,7 +367,7 @@ export default function OrbitrSequencer() {
       }
     };
 
-    const pack = packs[packName];
+    const pack = packs[packName as keyof typeof packs];
     if (!pack) return;
 
     console.log(`Generating ${pack.name}...`);
@@ -407,26 +417,7 @@ export default function OrbitrSequencer() {
 
   return (
     <div>
-      <style jsx>{`
-        .generating {
-          animation: generatePulse 1s ease-in-out infinite;
-        }
-        .active-step {
-          animation: activeGlow 2s ease-in-out infinite;
-        }
-        @keyframes generatePulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.6; }
-        }
-        @keyframes activeGlow {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.8; }
-        }
-      `}</style>
-      <div className="w-full max-w-7xl mx-auto p-4 md:p-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Circular Sequencer */}
-        <div className="lg:col-span-2">
+      <div>Test</div>
           <div className="bg-zinc-900 text-zinc-100 rounded-2xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -705,7 +696,6 @@ export default function OrbitrSequencer() {
           <GenerationQueue queue={genQueue} />
         </div>
         </div>
-      </div>
     </div>
   );
 }
