@@ -446,8 +446,9 @@ export default function OrbitrSequencer() {
                 </select>
                 <button
                   onClick={() => {
-                    // Clear all tracks first
-                    tracks.forEach(track => clearTrack(track.id));
+                    if (window.confirm("Are you sure you want to clear all tracks?")) {
+                      tracks.forEach(track => clearTrack(track.id));
+                    }
                   }}
                   className="px-3 py-2 bg-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-600 transition-all text-sm"
                 >
