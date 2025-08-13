@@ -54,3 +54,89 @@ input[type="range"]::-moz-range-thumb {
 .generating {
   animation: generating-pulse 1.5s ease-in-out infinite;
 }
+
+/* Tooltip animations */
+@keyframes slideDownAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideLeftAndFade {
+  from {
+    opacity: 0;
+    transform: translateX(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideUpAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideRightAndFade {
+  from {
+    opacity: 0;
+    transform: translateX(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+[data-side="top"] {
+  animation: slideDownAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-side="right"] {
+  animation: slideLeftAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-side="bottom"] {
+  animation: slideUpAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-side="left"] {
+  animation: slideRightAndFade 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Focus styles for better accessibility */
+.focus-visible {
+  @apply outline-none ring-2 ring-blue-400 ring-offset-2 ring-offset-zinc-900;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .tooltip {
+    @apply border-2 border-white;
+  }
+  
+  .button-primary {
+    @apply border-2 border-white;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

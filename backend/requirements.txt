@@ -11,3 +11,10 @@ transformers>=4.35.0
 python-dotenv==1.0.0
 redis==5.0.1
 celery==5.3.4
+
+# Security dependencies
+slowapi==0.1.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bleach==6.1.0
+validators==0.24.0

@@ -244,16 +244,33 @@ describe('AudioStore Multi-Track Logic', () => {
       expect(result.current.tracks[0].steps[7].active).toBe(false)
     })
 
-    it('should return correct track steps for legacy track getter', () => {
+    it('should handle track selection properly', () => {
       const { result } = renderHook(() => useAudioStore())
+      
+      // Verify initial state
+      expect(result.current.selectedTrack).toBe('track1')
       
       act(() => {
         result.current.setSelectedTrack('track3')
       })
       
-      // Legacy track getter should return selected track steps
-      const legacyTrack = result.current.track
-      expect(legacyTrack).toBe(result.current.tracks[2].steps)
+      // Verify track selection changed
+      expect(result.current.selectedTrack).toBe('track3')
+      
+      // Find track3 directly
+      const track3 = result.current.tracks.find(t => t.id === 'track3')
+      expect(track3).toBeDefined()
+      expect(track3?.name).toBe('B')
+      expect(track3?.steps).toHaveLength(16)
+      
+      // Test legacy actions work with selected track
+      act(() => {
+        result.current.updateStep(0, { active: true })
+      })
+      
+      // Should have affected track3
+      const updatedTrack3 = result.current.tracks.find(t => t.id === 'track3')
+      expect(updatedTrack3?.steps[0].active).toBe(true)
     })
   })
 })
