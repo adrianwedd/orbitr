@@ -246,7 +246,7 @@ export default function OrbitrSequencer() {
     });
 
     try {
-      const response = await axios.post('http://localhost:8000/generate', {
+      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/generate`, {
         prompt,
         duration: 1.5,
         ...options
@@ -406,7 +406,7 @@ export default function OrbitrSequencer() {
   const playheadAngle = () => angleForStep(currentStep.current);
 
   return (
-    <>
+    <div>
       <style jsx>{`
         .generating {
           animation: generatePulse 1s ease-in-out infinite;
@@ -706,6 +706,6 @@ export default function OrbitrSequencer() {
         </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
