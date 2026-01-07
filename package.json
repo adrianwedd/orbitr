@@ -45,7 +45,7 @@
     "prepare": "husky install"
   },
   "dependencies": {
-    "@radix-ui/react-alert-dialog": "^1.1.14",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-tooltip": "^1.2.7",
     "axios": "^1.6.5",
