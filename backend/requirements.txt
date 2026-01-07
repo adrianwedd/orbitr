@@ -9,7 +9,7 @@ torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.35.0
 python-dotenv==1.1.1
-redis==5.0.1
+redis==7.1.0
 celery==5.5.3
 
 # Security dependencies
