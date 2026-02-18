@@ -20,6 +20,10 @@ out/
 .env.test.local
 .env.production.local
 
+# Secrets and keys
+*.key
+backend/config/encryption.key
+
 # IDE and editors
 .vscode/
 .idea/

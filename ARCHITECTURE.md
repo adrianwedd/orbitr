@@ -154,7 +154,7 @@ interface SampleLibraryItem {
 interface GenerationQueueItem {
   id: string;
   prompt: string;
-  status: 'pending' | 'generating' | 'complete' | 'error';
+  status: 'queued' | 'generating' | 'ready' | 'error';
   progress: number;
 }
 
@@ -184,7 +184,7 @@ interface AudioState {
 
 ## Audio Engine
 
-The audio engine lives inside `audioStore.ts` and drives the Web Audio API directly.
+The audio engine lives inside `OrbitrSequencer.tsx` as a component hook and drives the Web Audio API directly. The store (`audioStore.ts`) owns sequencer state (tracks, steps, BPM, etc.) but scheduling happens in the component.
 
 ### Scheduler Loop
 
@@ -262,7 +262,7 @@ The visualizer activates on playback start and idles when stopped.
 | `POST` | `/generate` | Generate one sample from a text prompt |
 | `POST` | `/generate_batch` | Generate multiple samples |
 | `GET` | `/cache/size` | Report cache size |
-| `DELETE` | `/cache/clear` | Clear the sample cache |
+| `DELETE` | `/cache/clear` | Clear the sample cache (destructive) |
 
 ### Generation Flow
 
@@ -276,7 +276,7 @@ POST /generate { prompt, duration, quality }
   └── Return { audio: "<base64>", cached: false }
 ```
 
-Falls back to synthetic sine-wave audio if `transformers` / CUDA is unavailable (useful for local dev without a GPU).
+Model selection: `melody` model for draft quality, `musicgen` (small) for HQ. Falls back to synthetic sine-wave audio if `transformers` / CUDA is unavailable (useful for local dev without a GPU).
 
 ### Security Modules
 

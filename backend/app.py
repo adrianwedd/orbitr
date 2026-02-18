@@ -411,11 +411,13 @@ async def generate_sample(
     try:
         # Set seed for reproducibility
         if generate_request.seed:
-            torch.manual_seed(generate_request.seed)
+            if torch is not None:
+                torch.manual_seed(generate_request.seed)
             np.random.seed(generate_request.seed)
         else:
             generate_request.seed = np.random.randint(0, 2**32)
-            torch.manual_seed(generate_request.seed)
+            if torch is not None:
+                torch.manual_seed(generate_request.seed)
             np.random.seed(generate_request.seed)
         
         # Add generation timeout
@@ -535,7 +537,7 @@ async def generate_batch(
         "successful": len(results)
     }
 
-@app.get("/cache/clear")
+@app.delete("/cache/clear")
 @limiter.limit(f"{CACHE_RATE_LIMIT//10}/minute")  # Very limited for destructive operations
 async def clear_cache(
     request: Request,

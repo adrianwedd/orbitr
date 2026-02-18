@@ -70,8 +70,8 @@ class TestAPIEndpoints:
         assert isinstance(data["files"], int)
         assert isinstance(data["size_mb"], (int, float))
         
-        # Test cache clear endpoint
-        response = client.get("/cache/clear")
+        # Test cache clear endpoint (DELETE, not GET)
+        response = client.delete("/cache/clear")
         assert response.status_code == 200
         assert "message" in response.json()
 
