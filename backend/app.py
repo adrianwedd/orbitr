@@ -393,22 +393,21 @@ async def generate_sample(
     
     # Increment generation counter
     current_generations += 1
-    
-    # Check cache first
-    cache_key = get_cache_key(generate_request)
-    cache_file = CACHE_DIR / f"{cache_key}.wav"
-    
-    if cache_file.exists():
-        with open(cache_file, 'rb') as f:
-            audio_base64 = base64.b64encode(f.read()).decode('utf-8')
-        return GenerateResponse(
-            audio=audio_base64,
-            name=f"cached-{generate_request.prompt[:20]}",
-            seed=generate_request.seed or 42,
-            cached=True
-        )
-    
+
     try:
+        # Check cache first
+        cache_key = get_cache_key(generate_request)
+        cache_file = CACHE_DIR / f"{cache_key}.wav"
+
+        if cache_file.exists():
+            with open(cache_file, 'rb') as f:
+                audio_base64 = base64.b64encode(f.read()).decode('utf-8')
+            return GenerateResponse(
+                audio=audio_base64,
+                name=f"cached-{generate_request.prompt[:20]}",
+                seed=generate_request.seed or 42,
+                cached=True
+            )
         # Set seed for reproducibility
         if generate_request.seed:
             if torch is not None:

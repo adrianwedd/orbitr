@@ -7,6 +7,7 @@ import pytest
 import json
 import base64
 import time
+import uuid
 import os
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -24,12 +25,23 @@ os.environ["MAX_REQUEST_SIZE"] = "1024"
 os.environ["ENVIRONMENT"] = "test"
 
 from app import app, sanitize_text, validate_prompt_content
+from security_config import security_config
+from security_middleware import security_metrics
 
 # Fixtures for test isolation
 @pytest.fixture(autouse=True)
 def reset_rate_limits():
-    """Reset rate limiting state between tests"""
-    # Reset rate limiting state by creating a fresh client
+    """Configure auth with known test key and clear security middleware state.
+
+    conftest.py imports the app before this module's os.environ assignments take
+    effect, so security_config is already initialised with the generated key and
+    require_auth_in_dev=False.  Patch the live singleton here instead.
+    conftest.py handles rate-limiter storage reset.
+    """
+    security_config.auth_config.require_auth_in_dev = True
+    security_config.api_key = "test-api-key-secure"
+    security_metrics.blocked_ips.clear()
+    security_metrics.failed_auth_attempts.clear()
     yield
 
 @pytest.fixture
@@ -61,7 +73,7 @@ class TestAuthentication:
         assert "API key required" in response.json()["detail"]
         
         # Cache clear endpoint without auth
-        response = client.get("/cache/clear")
+        response = client.delete("/cache/clear")
         assert response.status_code == 401
     
     def test_invalid_api_key_rejected(self):
@@ -287,12 +299,13 @@ class TestResourceLimits:
     def test_generation_timeout(self):
         """Test generation timeout mechanism"""
         headers = {"Authorization": "Bearer test-api-key-secure"}
-        
-        with patch('app.GENERATION_TIMEOUT', 0.1):  # Very short timeout
-            with patch('time.time', side_effect=[0, 0.2]):  # Simulate timeout
-                response = client.post("/generate", json={"prompt": "test"}, headers=headers)
-                assert response.status_code == 408
-                assert "timeout" in response.json()["detail"].lower()
+        unique_prompt = f"timeout-test-{uuid.uuid4()}"
+
+        # Negative timeout means any elapsed time exceeds it — fires immediately
+        with patch('app.GENERATION_TIMEOUT', -1):
+            response = client.post("/generate", json={"prompt": unique_prompt}, headers=headers)
+            assert response.status_code == 408
+            assert "timeout" in response.json()["detail"].lower()
 
 class TestBatchOperations:
     """Test batch generation security"""
@@ -339,12 +352,13 @@ class TestErrorHandling:
     
     def test_production_error_messages(self):
         """Test that production doesn't expose sensitive information"""
-        with patch.dict(os.environ, {"ENVIRONMENT": "production"}):
-            headers = {"Authorization": "Bearer test-api-key-secure"}
-            
-            # Force an error by mocking
+        headers = {"Authorization": "Bearer test-api-key-secure"}
+        unique_prompt = f"error-test-{uuid.uuid4()}"
+
+        # Patch app.ENVIRONMENT (module constant, not os.environ) and force an error
+        with patch('app.ENVIRONMENT', 'production'):
             with patch('app.generate_fake_audio', side_effect=Exception("Internal error")):
-                response = client.post("/generate", json={"prompt": "test"}, headers=headers)
+                response = client.post("/generate", json={"prompt": unique_prompt}, headers=headers)
                 assert response.status_code == 500
                 assert "Audio generation failed" in response.json()["detail"]
                 assert "Internal error" not in response.json()["detail"]
@@ -385,13 +399,13 @@ class TestCacheSecurityfeatures:
     
     def test_cache_clear_requires_auth(self):
         """Test that cache clear requires authentication"""
-        response = client.get("/cache/clear")
+        response = client.delete("/cache/clear")
         assert response.status_code == 401
     
     def test_cache_clear_with_auth(self):
         """Test cache clear with proper authentication"""
         headers = {"Authorization": "Bearer test-api-key-secure"}
-        response = client.get("/cache/clear", headers=headers)
+        response = client.delete("/cache/clear", headers=headers)
         assert response.status_code == 200
         assert "cleared successfully" in response.json()["message"]
     

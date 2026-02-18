@@ -269,7 +269,7 @@ The visualizer activates on playback start and idles when stopped.
 ```
 POST /generate { prompt, duration, quality }
   ├── Check MD5 cache key → return cached WAV if hit
-  ├── Load MusicGen model (small for draft, melody for HQ)
+  ├── Load MusicGen model (melody for draft, musicgen-small for HQ)
   ├── Generate audio tensor (ThreadPoolExecutor)
   ├── Encode as WAV → base64
   ├── Write to file-system cache
@@ -311,14 +311,14 @@ User clicks Stop
 ```
 User enters prompt → clicks Generate
   → audioStore.generateSample(prompt, quality)
-      → Add GenerationQueueItem { status: 'pending' }
+      → Add GenerationQueueItem { status: 'queued' }
       → POST /generate to FastAPI backend
           → (cache hit)  return base64 WAV immediately
           → (cache miss) run MusicGen, encode, cache, return
       → decodeAudioData(base64) → AudioBuffer
       → Add SampleLibraryItem to store
       → Assign to selected step
-      → Update GenerationQueueItem { status: 'complete' }
+      → Update GenerationQueueItem { status: 'ready' }
 ```
 
 ### File Upload
