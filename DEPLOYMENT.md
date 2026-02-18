@@ -21,7 +21,7 @@ ORBITR can be deployed in multiple configurations depending on your needs.
 
 **Build Commands:**
 ```bash
-npm run build:static  # Build for static deployment
+pnpm run build:static  # Build for static deployment
 ```
 
 ### 2. Full-Stack Deployment (With Real AI) 🤖
@@ -71,21 +71,21 @@ NEXT_PUBLIC_API_URL=https://your-backend.railway.app
 
 **Local Development:**
 ```bash
-npm run dev          # Full stack (frontend + backend)
-npm run dev:frontend # Frontend only (port 3001)
-npm run dev:backend  # Backend only (port 8000)
+pnpm dev             # Full stack (frontend + backend)
+pnpm dev:frontend    # Frontend only (port 3000)
+pnpm dev:backend     # Backend only (port 8000)
 ```
 
 **Testing:**
 ```bash
-npm run test           # Unit tests
-npx playwright test    # E2E tests (136 comprehensive tests)
+pnpm test                # Unit tests
+pnpm test:e2e            # E2E tests (Playwright)
 ```
 
 **Build:**
 ```bash
-npm run build         # Standard Next.js build
-npm run build:static  # Static export for GitHub Pages
+pnpm run build         # Standard Next.js build
+pnpm run build:static  # Static export for GitHub Pages
 ```
 
 ## 📦 GitHub Actions Workflow

@@ -8,7 +8,7 @@ The application is designed as a musical instrument, allowing users to create po
 
 ### Prerequisites
 
-*   Node.js 18+ and npm
+*   Node.js 18+ and pnpm (`npm install -g pnpm`)
 *   Python 3.9+
 
 ### Development
@@ -16,7 +16,7 @@ The application is designed as a musical instrument, allowing users to create po
 To run the application in development mode, which includes both the frontend and backend with hot-reloading:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 This will start the Next.js frontend on `http://localhost:3000` and the FastAPI backend on `http://localhost:8000`.
@@ -26,7 +26,7 @@ This will start the Next.js frontend on `http://localhost:3000` and the FastAPI 
 To run only the Next.js frontend:
 
 ```bash
-npm run dev:frontend
+pnpm dev:frontend
 ```
 
 ### Backend-only
@@ -34,7 +34,7 @@ npm run dev:frontend
 To run only the Python backend:
 
 ```bash
-npm run dev:backend
+pnpm dev:backend
 ```
 
 ### Production Build
@@ -42,13 +42,13 @@ npm run dev:backend
 To build the application for production:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 To start the application in production mode:
 
 ```bash
-npm run start
+pnpm run start
 ```
 
 ### Testing
@@ -56,19 +56,19 @@ npm run start
 To run the test suite:
 
 ```bash
-npm test
+pnpm test
 ```
 
 To run the tests in watch mode:
 
 ```bash
-npm run test:watch
+pnpm run test:watch
 ```
 
 To generate a test coverage report:
 
 ```bash
-npm run test:coverage
+pnpm run test:coverage
 ```
 
 ## Development Conventions
@@ -78,15 +78,15 @@ npm run test:coverage
 This project uses ESLint for linting and Prettier for code formatting. To check for linting and formatting errors:
 
 ```bash
-npm run lint
-npm run format:check
+pnpm run lint
+pnpm run format:check
 ```
 
 To automatically fix linting and formatting errors:
 
 ```bash
-npm run lint:fix
-npm run format
+pnpm run lint:fix
+pnpm run format
 ```
 
 A pre-commit hook is set up with Husky and lint-staged to automatically lint and format staged files before each commit.
@@ -96,7 +96,7 @@ A pre-commit hook is set up with Husky and lint-staged to automatically lint and
 To check for TypeScript errors:
 
 ```bash
-npm run type-check
+pnpm run type-check
 ```
 
 ### Contribution Guidelines

@@ -1,911 +1,412 @@
-# Orbitr Architecture Documentation
+# Orbitr Architecture
 
 ## Table of Contents
 1. [System Overview](#system-overview)
-2. [Core Concepts](#core-concepts)
-3. [Technical Stack](#technical-stack)
-4. [Application Architecture](#application-architecture)
-5. [Audio Engine Design](#audio-engine-design)
-6. [State Management](#state-management)
-7. [Component Hierarchy](#component-hierarchy)
-8. [Data Flow](#data-flow)
-9. [Performance Considerations](#performance-considerations)
-10. [Security Architecture](#security-architecture)
-11. [Deployment Architecture](#deployment-architecture)
-12. [Future Considerations](#future-considerations)
+2. [Technical Stack](#technical-stack)
+3. [Directory Layout](#directory-layout)
+4. [Component Tree](#component-tree)
+5. [State Management](#state-management)
+6. [Audio Engine](#audio-engine)
+7. [Visualization System](#visualization-system)
+8. [Backend](#backend)
+9. [Data Flow](#data-flow)
+10. [Security](#security)
+11. [Deployment](#deployment)
+12. [CI/CD](#cicd)
+13. [Testing](#testing)
 
 ---
 
 ## System Overview
 
-Orbitr is a web-based polyphonic circular step sequencer with AI-powered sample generation. The system consists of three main components:
+Orbitr is a browser-based polyphonic circular step sequencer with optional AI sample generation. It runs entirely in the browser; the Python backend is optional and only needed for real MusicGen audio generation.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                         Browser (Client)                      │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │                   React Application                   │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌───────────┐ │    │
-│  │  │ UI Components│  │ Audio Engine │  │State Mgmt │ │    │
-│  │  └──────────────┘  └──────────────┘  └───────────┘ │    │
-│  └──────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
-                               │
-                               │ HTTP/WebSocket
-                               │
-┌──────────────────────────────────────────────────────────────┐
-│                      Backend Services                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  FastAPI     │  │   MusicGen   │  │    Cache     │      │
-│  │  Server      │  │   Models     │  │    Layer     │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└──────────────────────────────────────────────────────────────┘
+Browser
+├── Next.js 14 (App Router)
+│   ├── React 18 components
+│   ├── Zustand store (audioStore)
+│   └── Web Audio API scheduler
+│
+└── (optional) FastAPI backend — port 8000
+    ├── MusicGen / AudioCraft (Meta)
+    └── File-system sample cache
 ```
 
 ### Design Principles
 
-1. **Real-time Performance**: Audio scheduling must be sample-accurate with <10ms latency
-2. **Offline-First**: Core functionality works without backend connection
-3. **Progressive Enhancement**: Features scale based on device capabilities
-4. **Modular Architecture**: Components are loosely coupled and independently testable
-5. **Accessibility**: Full keyboard navigation and screen reader support
-
----
-
-## Core Concepts
-
-### Musical Structure
-
-```
-Pattern
-├── Track[] (Concentric rings, 4-8 tracks)
-│   ├── Steps[] (16 steps per track)
-│   │   ├── active: boolean
-│   │   ├── sample: AudioBuffer | null
-│   │   ├── velocity: 0-127
-│   │   ├── probability: 0-1
-│   │   ├── timing: -50ms to +50ms
-│   │   └── effects: EffectChain
-│   ├── volume: 0-1
-│   ├── pan: -1 to 1
-│   ├── mute: boolean
-│   ├── solo: boolean
-│   └── color: hex
-└── Global
-    ├── bpm: 40-200
-    ├── swing: 0-100%
-    ├── length: 1-64 steps
-    └── timeSignature: 4/4, 3/4, etc.
-```
-
-### Playback Model
-
-The sequencer uses a **look-ahead scheduling** model:
-
-1. **Clock Source**: High-resolution Web Audio clock
-2. **Scheduler**: Runs every 25ms, schedules 100ms ahead
-3. **Event Queue**: Buffered events for precise timing
-4. **Polyphony**: Up to 8 tracks × 16 steps = 128 potential voices
+- **Offline-first**: Full sequencer functionality works without the backend.
+- **Real-time audio**: Web Audio API with a 25 ms scheduler interval and 100 ms lookahead for sample-accurate timing.
+- **Static deployable**: Builds to a fully static export for GitHub Pages via `pnpm run build:static`.
 
 ---
 
 ## Technical Stack
 
 ### Frontend
-```yaml
-Core:
-  - Next.js 14: React framework with SSR/SSG
-  - React 18: UI library with concurrent features
-  - TypeScript 5: Type safety and developer experience
+| Layer | Technology |
+|-------|-----------|
+| Framework | Next.js 14 (App Router) |
+| Language | TypeScript 5 |
+| Styling | Tailwind CSS |
+| UI primitives | Radix UI |
+| State | Zustand 4 |
+| Audio | Web Audio API (native browser) |
+| Canvas | HTML5 Canvas (EnhancedSequencer visualizer) |
+| Package manager | pnpm 10 |
 
-State Management:
-  - Zustand 4: Lightweight state management
-  - Immer: Immutable state updates
-  - React Query: Server state management
+### Backend (optional)
+| Layer | Technology |
+|-------|-----------|
+| Server | FastAPI (Python) |
+| AI model | Meta MusicGen via `transformers` |
+| Rate limiting | slowapi |
+| Input sanitisation | bleach, validators |
+| Cache | Local filesystem (MD5-keyed WAV files) |
 
-Audio:
-  - Web Audio API: Low-level audio processing
-  - Tone.js (optional): Audio effects and utilities
-  - WaveSurfer.js: Waveform visualization
+---
 
-UI/UX:
-  - Tailwind CSS: Utility-first styling
-  - Framer Motion: Animations
-  - Radix UI: Accessible components
-  - React DnD Kit: Drag and drop
+## Directory Layout
 
-Build Tools:
-  - Webpack 5: Module bundling
-  - SWC: Fast TypeScript compilation
-  - PostCSS: CSS processing
 ```
-
-### Backend
-```yaml
-Core:
-  - Python 3.10+: Runtime
-  - FastAPI: Async web framework
-  - Uvicorn: ASGI server
-
-AI/ML:
-  - AudioCraft: Meta's audio generation
-  - MusicGen: Music generation models
-  - PyTorch: Deep learning framework
-  - Transformers: Model management
-
-Audio Processing:
-  - librosa: Audio analysis
-  - scipy: Signal processing
-  - numpy: Numerical operations
-
-Infrastructure:
-  - Redis: Caching and queues
-  - Celery: Task queue for generation
-  - MinIO/S3: Sample storage
-  - PostgreSQL: Metadata storage
+orbitr/
+├── app/                      # Next.js App Router
+│   ├── layout.tsx
+│   └── page.tsx              # Renders ClientPage
+├── components/               # React components
+│   ├── OrbitrSequencer.tsx   # Main multi-track circular sequencer
+│   ├── EnhancedSequencer.tsx # Audio-reactive Canvas visualizer
+│   ├── TrackControls.tsx     # Per-track volume/mute/solo panel
+│   ├── StepEditor.tsx        # Per-step gain/probability/prompt editor
+│   ├── SampleLibrary.tsx     # Drag-and-drop sample management
+│   ├── TransportControls.tsx # BPM, swing, reverse, master gain
+│   └── GenerationQueue.tsx   # AI generation progress tracker
+├── lib/
+│   ├── audioStore.ts         # Zustand store — single source of truth
+│   └── types.ts              # TypeScript interfaces
+├── backend/
+│   ├── app.py                # FastAPI application
+│   ├── security_config.py
+│   ├── security_middleware.py
+│   ├── security_logging.py
+│   └── api_key_management.py
+├── tests/
+│   ├── unit/                 # Jest + React Testing Library
+│   └── e2e/                  # Playwright
+└── .github/workflows/        # CI/CD (pnpm-based)
 ```
 
 ---
 
-## Application Architecture
-
-### Layered Architecture
+## Component Tree
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Presentation Layer                    │
-│         (React Components, UI State, Animations)         │
-├─────────────────────────────────────────────────────────┤
-│                    Application Layer                     │
-│        (Business Logic, Audio Engine, Sequencer)         │
-├─────────────────────────────────────────────────────────┤
-│                      Domain Layer                        │
-│        (Core Models, Musical Concepts, Rules)            │
-├─────────────────────────────────────────────────────────┤
-│                  Infrastructure Layer                    │
-│         (API Clients, Storage, External Services)        │
-└─────────────────────────────────────────────────────────┘
+page.tsx
+└── ClientPage (client boundary)
+    ├── OrbitrSequencer        — 4-ring SVG sequencer + step click handling
+    │   └── EnhancedSequencer  — Canvas overlay with audio-reactive visuals
+    ├── TrackControls          — O / R / B / I track selectors + per-track controls
+    ├── StepEditor             — Active step parameters
+    ├── TransportControls      — Play/stop, BPM, swing, reverse, master gain
+    ├── SampleLibrary          — Loaded samples list, drag-and-drop upload
+    └── GenerationQueue        — AI generation jobs with progress bars
 ```
-
-### Module Structure
-
-```
-src/
-├── components/           # UI Components
-│   ├── sequencer/       # Sequencer-specific components
-│   │   ├── TrackRing.tsx
-│   │   ├── StepButton.tsx
-│   │   ├── Playhead.tsx
-│   │   └── TrackControls.tsx
-│   ├── controls/        # Control components
-│   │   ├── Knob.tsx
-│   │   ├── Fader.tsx
-│   │   └── Transport.tsx
-│   └── shared/          # Reusable components
-│
-├── lib/                 # Core libraries
-│   ├── audio/          # Audio engine
-│   │   ├── engine.ts
-│   │   ├── scheduler.ts
-│   │   ├── effects.ts
-│   │   └── analysis.ts
-│   ├── sequencer/      # Sequencer logic
-│   │   ├── pattern.ts
-│   │   ├── track.ts
-│   │   └── step.ts
-│   └── ai/             # AI integration
-│       ├── generation.ts
-│       └── prompts.ts
-│
-├── stores/             # State management
-│   ├── sequencer.ts
-│   ├── audio.ts
-│   ├── ui.ts
-│   └── settings.ts
-│
-├── hooks/              # Custom React hooks
-│   ├── useAudioEngine.ts
-│   ├── useKeyboardShortcuts.ts
-│   └── useGenerateAudio.ts
-│
-├── services/           # External services
-│   ├── api.ts
-│   ├── storage.ts
-│   └── analytics.ts
-│
-└── utils/              # Utilities
-    ├── music.ts        # Musical calculations
-    ├── audio.ts        # Audio utilities
-    └── format.ts       # Data formatting
-```
-
----
-
-## Audio Engine Design
-
-### Architecture Overview
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Audio Context                         │
-│                                                           │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐        │
-│  │  Track 1   │  │  Track 2   │  │  Track N   │        │
-│  │  └─Gain    │  │  └─Gain    │  │  └─Gain    │        │
-│  │    └─Pan   │  │    └─Pan   │  │    └─Pan   │        │
-│  │      └─FX  │  │      └─FX  │  │      └─FX  │        │
-│  └──────┬─────┘  └──────┬─────┘  └──────┬─────┘        │
-│         │                │                │               │
-│         └────────────────┴────────────────┘               │
-│                          │                                │
-│                    ┌─────▼─────┐                         │
-│                    │  Master   │                         │
-│                    │   └─Gain  │                         │
-│                    │     └─Comp│                         │
-│                    │       └─Lim│                         │
-│                    └─────┬─────┘                         │
-│                          │                                │
-│                    ┌─────▼─────┐                         │
-│                    │Destination│                         │
-│                    └───────────┘                         │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Scheduling System
-
-```typescript
-class AudioScheduler {
-  private lookahead = 100.0;        // ms
-  private scheduleInterval = 25.0;  // ms
-  private nextNoteTime = 0.0;       // Audio context time
-  private currentStep = 0;          // Current sequencer position
-  
-  private scheduler() {
-    // Schedule all notes that fall within lookahead window
-    while (this.nextNoteTime < this.audioContext.currentTime + this.lookahead) {
-      this.scheduleStep(this.currentStep, this.nextNoteTime);
-      this.advanceStep();
-    }
-  }
-  
-  private scheduleStep(step: number, time: number) {
-    // For each track
-    tracks.forEach(track => {
-      const stepData = track.steps[step];
-      if (stepData.active && stepData.sample) {
-        this.scheduleNote(track, stepData, time);
-      }
-    });
-  }
-}
-```
-
-### Voice Architecture
-
-Each voice (playing sample) has this signal chain:
-
-```
-AudioBufferSourceNode
-    │
-    ├─► GainNode (velocity)
-    │
-    ├─► StereoPannerNode
-    │
-    ├─► FilterNode (optional)
-    │
-    ├─► WaveShaperNode (optional distortion)
-    │
-    ├─► DelayNode (optional)
-    │
-    └─► Track Output
-```
-
-### Performance Optimizations
-
-1. **Object Pooling**: Reuse audio nodes to reduce GC pressure
-2. **Buffer Caching**: Keep frequently used samples in memory
-3. **Lazy Loading**: Load samples on-demand with prefetching
-4. **Web Workers**: Offload waveform analysis and non-critical processing
 
 ---
 
 ## State Management
 
-### Store Architecture
+Single Zustand store (`lib/audioStore.ts`) owns all application state.
+
+### Core Types (`lib/types.ts`)
 
 ```typescript
-// Root store combining all slices
-interface OrbitrStore {
-  // Sequencer state
-  sequencer: SequencerSlice;
-  
-  // Audio engine state
-  audio: AudioSlice;
-  
-  // UI state
-  ui: UISlice;
-  
-  // User settings
-  settings: SettingsSlice;
-  
-  // AI generation
-  generation: GenerationSlice;
+interface Step {
+  id: string;
+  active: boolean;
+  sampleId: string | null;
+  gain: number;          // 0–2
+  probability: number;   // 0–1
+  offset: number;        // timing offset in seconds
+  prompt: string;
 }
-```
 
-### Sequencer Slice
+interface Track {
+  id: string;
+  name: string;
+  steps: Step[];
+  volume: number;
+  muted: boolean;
+  soloed: boolean;
+  color: string;
+  radius: number;
+}
 
-```typescript
-interface SequencerSlice {
-  // State
-  patterns: Map<string, Pattern>;
-  activePatternId: string;
+interface SampleLibraryItem {
+  id: string;
+  name: string;
+  buffer: AudioBuffer;
+  duration: number;
+  type: 'generated' | 'uploaded' | 'pack';
+  prompt?: string;
+}
+
+interface GenerationQueueItem {
+  id: string;
+  prompt: string;
+  status: 'pending' | 'generating' | 'complete' | 'error';
+  progress: number;
+}
+
+interface AudioState {
   tracks: Track[];
-  currentStep: number;
+  selectedTrackId: string;
+  selectedStepId: string | null;
   isPlaying: boolean;
-  bpm: number;
-  swing: number;
-  
-  // Actions
-  toggleStep: (trackId: string, stepIndex: number) => void;
-  setStepSample: (trackId: string, stepIndex: number, sample: Sample) => void;
-  setStepVelocity: (trackId: string, stepIndex: number, velocity: number) => void;
-  setStepProbability: (trackId: string, stepIndex: number, prob: number) => void;
-  clearTrack: (trackId: string) => void;
-  clearPattern: () => void;
-  
-  // Pattern management
-  savePattern: (name: string) => void;
-  loadPattern: (id: string) => void;
-  deletePattern: (id: string) => void;
-  
-  // Transport
-  play: () => void;
-  stop: () => void;
-  setBPM: (bpm: number) => void;
-  setSwing: (swing: number) => void;
+  bpm: number;           // 40–200
+  swing: number;         // 0–1
+  masterGain: number;
+  reverse: boolean;
+  sampleLibrary: SampleLibraryItem[];
+  generationQueue: GenerationQueueItem[];
+  // ... actions
 }
 ```
 
-### State Synchronization
+### Store Slices
 
-```
-User Action → Store Update → React Re-render
-                ↓
-          Side Effects
-                ↓
-    Audio Engine Update / API Call
-```
-
-### Persistence Strategy
-
-```typescript
-// Persist to IndexedDB
-const persistConfig = {
-  name: 'orbitr-storage',
-  version: 1,
-  storage: createIDBStorage(),
-  partialize: (state) => ({
-    patterns: state.sequencer.patterns,
-    settings: state.settings,
-    samples: state.audio.sampleLibrary,
-  }),
-};
-```
+- **Transport**: `isPlaying`, `bpm`, `swing`, `masterGain`, `reverse` + play/stop actions
+- **Tracks**: 4 concentric rings (`O`, `R`, `B`, `I`), each with 16 steps + per-track controls
+- **Sample Library**: loaded AudioBuffers with metadata
+- **Generation Queue**: AI job tracking
 
 ---
 
-## Component Hierarchy
+## Audio Engine
 
-### Main Application Structure
+The audio engine lives inside `audioStore.ts` and drives the Web Audio API directly.
 
-```
-App
-├── Layout
-│   ├── Header
-│   │   ├── Logo
-│   │   ├── ProjectName
-│   │   └── GlobalActions (Save/Load/Share)
-│   └── Main
-│       ├── SequencerView
-│       │   ├── CircularSequencer
-│       │   │   ├── TrackRing (×N tracks)
-│       │   │   │   └── StepButton (×16 steps)
-│       │   │   ├── Playhead
-│       │   │   └── CenterControls
-│       │   │       └── TrackLabels (O-R-B-I-T-R)
-│       │   └── TransportBar
-│       │       ├── PlayButton
-│       │       ├── StopButton
-│       │       ├── BPMControl
-│       │       └── SwingControl
-│       ├── SidePanel
-│       │   ├── TrackControls
-│       │   │   ├── VolumeSlider
-│       │   │   ├── PanKnob
-│       │   │   ├── MuteButton
-│       │   │   └── SoloButton
-│       │   ├── StepEditor
-│       │   │   ├── SampleSelector
-│       │   │   ├── VelocitySlider
-│       │   │   ├── ProbabilitySlider
-│       │   │   └── TimingOffset
-│       │   └── SampleLibrary
-│       │       ├── LocalSamples
-│       │       ├── GeneratedSamples
-│       │       └── UploadZone
-│       └── GenerationPanel
-│           ├── PromptInput
-│           ├── GenerateButton
-│           ├── QualitySelector
-│           └── GenerationQueue
-└── Modals
-    ├── SettingsModal
-    ├── ExportModal
-    └── ShareModal
-```
-
-### Component Communication
+### Scheduler Loop
 
 ```
-                    ┌──────────────┐
-                    │ Global Store │
-                    └──────┬───────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   ┌────▼────┐      ┌──────▼──────┐    ┌─────▼─────┐
-   │Sequencer│      │   Controls  │    │  Library  │
-   └────┬────┘      └──────┬──────┘    └─────┬─────┘
-        │                  │                  │
-   ┌────▼────┐      ┌──────▼──────┐    ┌─────▼─────┐
-   │  Tracks │      │   Knobs     │    │  Samples  │
-   └─────────┘      └─────────────┘    └───────────┘
+setInterval (25 ms)
+  └── scheduleSteps()
+        for each track:
+          for each step in lookahead window (100 ms):
+            if step.active && Math.random() < step.probability:
+              createBufferSource → gainNode → trackGainNode → masterGainNode → destination
+              source.start(exactTime)
 ```
+
+Key constants:
+- Scheduler interval: **25 ms**
+- Lookahead window: **100 ms**
+- Swing: up to **30% beat offset** applied to even steps
+
+### Audio Graph
+
+```
+AudioBufferSourceNode
+  └── GainNode (step gain × track volume)
+        └── GainNode (master)
+              └── AudioContext.destination
+```
+
+### Track Configuration
+
+```typescript
+// 4 concentric rings, outermost to innermost
+{ id: 'track1', name: 'O', radius: 180, color: '#ef4444' }  // Red
+{ id: 'track2', name: 'R', radius: 150, color: '#3b82f6' }  // Blue
+{ id: 'track3', name: 'B', radius: 120, color: '#10b981' }  // Green
+{ id: 'track4', name: 'I', radius: 90,  color: '#f59e0b' }  // Amber
+```
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play / Stop |
+| `G` | Generate sample for selected step |
+| `C` | Clear selected step |
+| `R` | Toggle reverse |
+| `1–9, 0` | Select steps 1–10 |
+| `Q W E R T Y` | Select steps 11–16 |
+| `← →` | Adjust BPM |
+
+---
+
+## Visualization System
+
+`EnhancedSequencer.tsx` renders an HTML5 Canvas overlay on top of the SVG sequencer rings. It uses:
+
+- **AnalyserNode** (FFT) — real-time frequency data from the master audio output
+- **Spring physics** — smooth animated step indicators with configurable stiffness/damping
+- **requestAnimationFrame loop** — 60 fps canvas redraws
+- **Waveform ring** — circular waveform rendered at each track radius
+- **Frequency bars** — radial FFT bars emanating from the center
+
+The visualizer activates on playback start and idles when stopped.
+
+---
+
+## Backend
+
+`backend/app.py` — FastAPI application, runs on port **8000**.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/generate` | Generate one sample from a text prompt |
+| `POST` | `/generate_batch` | Generate multiple samples |
+| `GET` | `/cache/size` | Report cache size |
+| `DELETE` | `/cache/clear` | Clear the sample cache |
+
+### Generation Flow
+
+```
+POST /generate { prompt, duration, quality }
+  ├── Check MD5 cache key → return cached WAV if hit
+  ├── Load MusicGen model (small for draft, melody for HQ)
+  ├── Generate audio tensor (ThreadPoolExecutor)
+  ├── Encode as WAV → base64
+  ├── Write to file-system cache
+  └── Return { audio: "<base64>", cached: false }
+```
+
+Falls back to synthetic sine-wave audio if `transformers` / CUDA is unavailable (useful for local dev without a GPU).
+
+### Security Modules
+
+- `security_config.py` — CSP headers, allowed origins
+- `security_middleware.py` — request validation middleware
+- `security_logging.py` — structured audit logging
+- `api_key_management.py` — optional API key gating
 
 ---
 
 ## Data Flow
 
-### Sample Generation Flow
+### Playback
 
 ```
-User Input (Prompt)
-        │
-        ▼
-[Validate & Queue]
-        │
-        ▼
-[Check Cache]────Yes───→ [Return Cached]
-        │                        │
-       No                        │
-        ▼                        │
-[Generate Request]               │
-        │                        │
-        ▼                        │
-[Backend Processing]             │
-        │                        │
-        ▼                        │
-[Return Audio Data]              │
-        │                        │
-        ▼                        │
-[Decode & Cache]                 │
-        │                        │
-        ▼◄───────────────────────┘
-[Update Library]
-        │
-        ▼
-[Assign to Step]
+User clicks Play
+  → audioStore.startPlayback()
+      → AudioContext.resume()
+      → schedulerTimerRef = setInterval(scheduleSteps, 25)
+
+scheduleSteps() every 25 ms
+  → for each track's active steps in next 100 ms:
+      → AudioBufferSourceNode.start(scheduledTime)
+
+User clicks Stop
+  → clearInterval(schedulerTimerRef)
+  → AudioContext.suspend()
 ```
 
-### Pattern Playback Flow
+### AI Sample Generation
 
 ```
-Clock Tick (25ms)
-        │
-        ▼
-[Check Lookahead Window]
-        │
-        ▼
-[Get Active Steps]
-        │
-        ▼
-[Apply Probability]
-        │
-        ▼
-[Calculate Timing]
-        │
-        ▼
-[Schedule AudioBufferSource]
-        │
-        ▼
-[Update Visual Playhead]
-        │
-        ▼
-[Advance Step Counter]
+User enters prompt → clicks Generate
+  → audioStore.generateSample(prompt, quality)
+      → Add GenerationQueueItem { status: 'pending' }
+      → POST /generate to FastAPI backend
+          → (cache hit)  return base64 WAV immediately
+          → (cache miss) run MusicGen, encode, cache, return
+      → decodeAudioData(base64) → AudioBuffer
+      → Add SampleLibraryItem to store
+      → Assign to selected step
+      → Update GenerationQueueItem { status: 'complete' }
 ```
 
-### State Update Flow
+### File Upload
 
 ```
-User Interaction
-        │
-        ▼
-[Dispatch Action]
-        │
-        ▼
-[Reducer/Store Update]
-        │
-        ├─────→ [Update UI]
-        │
-        ├─────→ [Update Audio Engine]
-        │
-        └─────→ [Persist to Storage]
+User drags audio file onto SampleLibrary
+  → FileReader.readAsArrayBuffer()
+  → AudioContext.decodeAudioData()
+  → Add SampleLibraryItem { type: 'uploaded' }
 ```
 
 ---
 
-## Performance Considerations
+## Security
 
-### Critical Performance Metrics
+The backend applies:
+- **Rate limiting** via slowapi (per-IP, configurable)
+- **Input sanitisation** via bleach for all text prompts
+- **URL validation** via validators
+- **CORS** restricted to configured origins
+- **CSP headers** via security_config.py
 
-```yaml
-Target Metrics:
-  - Initial Load: < 3 seconds
-  - Time to Interactive: < 5 seconds
-  - Frame Rate: 60 FPS during playback
-  - Audio Latency: < 10ms
-  - Memory Usage: < 200MB baseline
-  - CPU Usage: < 30% during playback
+The frontend has no authentication layer; the backend is intended to run locally or behind a trusted reverse proxy.
+
+---
+
+## Deployment
+
+### Static (GitHub Pages) — no backend
+
+```bash
+pnpm run build:static   # next build + next export
 ```
 
-### Optimization Strategies
+All features work except real MusicGen generation. Sample packs use pre-synthesised audio.
 
-#### 1. Code Splitting
-```javascript
-// Lazy load heavy features
-const SampleEditor = lazy(() => import('./components/SampleEditor'));
-const ExportModal = lazy(() => import('./components/ExportModal'));
-const AIGenerator = lazy(() => import('./components/AIGenerator'));
+### Full-stack
+
+```bash
+# Frontend
+pnpm run build && pnpm start   # port 3000
+
+# Backend
+cd backend && python app.py    # port 8000
 ```
 
-#### 2. Memoization
-```typescript
-// Memoize expensive calculations
-const euclideanPattern = useMemo(
-  () => calculateEuclidean(steps, pulses, rotation),
-  [steps, pulses, rotation]
-);
+### Environment Variables
 
-// Memoize components
-const TrackRing = memo(({ track, isPlaying }) => {
-  // Component implementation
-}, (prev, next) => {
-  return prev.track.id === next.track.id && 
-         prev.isPlaying === next.isPlaying;
-});
-```
+```bash
+# Frontend (.env.local)
+NEXT_PUBLIC_API_URL=http://localhost:8000   # backend URL
+NEXT_PUBLIC_STATIC_MODE=false              # set true for static export
 
-#### 3. Web Workers
-```typescript
-// Offload heavy processing
-const waveformWorker = new Worker('/workers/waveform.js');
-waveformWorker.postMessage({ 
-  buffer: audioBuffer,
-  resolution: 1024 
-});
-```
-
-#### 4. Virtual Rendering
-```typescript
-// Virtualize large lists
-import { VirtualList } from '@tanstack/react-virtual';
-
-const SampleLibrary = ({ samples }) => {
-  const virtualizer = useVirtualizer({
-    count: samples.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 60,
-  });
-};
-```
-
-### Memory Management
-
-```typescript
-class AudioBufferManager {
-  private cache = new Map<string, AudioBuffer>();
-  private maxCacheSize = 100 * 1024 * 1024; // 100MB
-  private currentSize = 0;
-  
-  add(key: string, buffer: AudioBuffer) {
-    const size = buffer.length * buffer.numberOfChannels * 4;
-    
-    // Evict if necessary
-    while (this.currentSize + size > this.maxCacheSize) {
-      this.evictOldest();
-    }
-    
-    this.cache.set(key, buffer);
-    this.currentSize += size;
-  }
-  
-  private evictOldest() {
-    // LRU eviction strategy
-  }
-}
+# Backend
+CACHE_DIR=./cache
+MAX_CACHE_SIZE_MB=500
 ```
 
 ---
 
-## Security Architecture
+## CI/CD
 
-### Client-Side Security
+Three GitHub Actions workflows, all pnpm-based:
 
-```yaml
-Measures:
-  - Content Security Policy (CSP)
-  - Subresource Integrity (SRI)
-  - XSS Protection
-  - CORS Configuration
-  - Input Sanitization
-  - Rate Limiting
-```
+| Workflow | Trigger | Jobs |
+|----------|---------|------|
+| `ci.yml` | push / PR | lint, type-check, unit tests, Lighthouse |
+| `deploy.yml` | push to main | build:static → GitHub Pages |
+| `comprehensive-testing.yml` | push / PR | frontend tests, E2E, perf, security scan |
 
-### API Security
-
-```python
-# Rate limiting
-from fastapi_limiter import FastAPILimiter
-from fastapi_limiter.depends import RateLimiter
-
-@app.post("/generate", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-async def generate_sample(request: GenerateRequest):
-    # Implementation
-```
-
-### Data Privacy
-
-```typescript
-// Client-side encryption for sensitive data
-import { encrypt, decrypt } from './crypto';
-
-const savePattern = async (pattern: Pattern) => {
-  const encrypted = await encrypt(pattern, userKey);
-  await api.savePattern(encrypted);
-};
-```
+All workflows use `pnpm/action-setup@v4` + `pnpm install --frozen-lockfile`.
 
 ---
 
-## Deployment Architecture
-
-### Production Infrastructure
+## Testing
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      CloudFlare                          │
-│                    (CDN + DDoS Protection)               │
-└─────────────────────────────────────────────────────────┘
-                             │
-┌─────────────────────────────────────────────────────────┐
-│                       Vercel                             │
-│                  (Next.js Hosting)                       │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Edge Functions  │  Static Assets  │  API Routes │   │
-│  └─────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                             │
-┌─────────────────────────────────────────────────────────┐
-│                    Backend Services                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │  API Server  │  │ GPU Instance │  │   Database  │  │
-│  │  (FastAPI)   │  │  (MusicGen)  │  │ (PostgreSQL)│  │
-│  └──────────────┘  └──────────────┘  └─────────────┘  │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │    Redis     │  │   S3/R2      │  │   Queue     │  │
-│  │   (Cache)    │  │  (Storage)   │  │  (Celery)   │  │
-│  └──────────────┘  └──────────────┘  └─────────────┘  │
-└─────────────────────────────────────────────────────────┘
+tests/
+├── unit/
+│   ├── audioStore.test.ts     # Zustand store — 81 tests
+│   └── components/            # React Testing Library component tests
+└── e2e/
+    └── sequencer.spec.ts      # Playwright end-to-end tests
 ```
 
-### Scaling Strategy
-
-```yaml
-Horizontal Scaling:
-  - API Servers: Auto-scale based on CPU/Memory
-  - GPU Workers: Queue-based scaling
-  - Database: Read replicas for queries
-  - Cache: Redis Cluster
-
-Vertical Scaling:
-  - GPU Instances: Upgrade for faster generation
-  - Database: Increase resources as needed
-
-Edge Computing:
-  - Static assets via CDN
-  - Edge functions for simple API calls
-  - Regional caches for samples
-```
-
-### CI/CD Pipeline
-
-```yaml
-Pipeline:
-  - Trigger: Push to main branch
-  - Steps:
-    1. Run tests (Jest, Playwright)
-    2. Type checking (TypeScript)
-    3. Linting (ESLint, Prettier)
-    4. Build application
-    5. Run security scan
-    6. Deploy to staging
-    7. Run E2E tests
-    8. Deploy to production
-    9. Monitor metrics
-```
-
----
-
-## Future Considerations
-
-### Planned Architectural Changes
-
-#### 1. WebAssembly Audio Processing
-```typescript
-// Future: WASM for performance-critical audio
-import { WasmAudioProcessor } from './wasm/audio';
-
-const processor = await WasmAudioProcessor.load();
-const processedBuffer = processor.applyEffects(buffer, effects);
-```
-
-#### 2. WebRTC Collaboration
-```typescript
-// Future: Real-time collaboration
-class CollaborationManager {
-  private peer: RTCPeerConnection;
-  private dataChannel: RTCDataChannel;
-  
-  syncPattern(changes: PatternDelta) {
-    this.dataChannel.send(JSON.stringify(changes));
-  }
-}
-```
-
-#### 3. Plugin Architecture
-```typescript
-// Future: Extensible plugin system
-interface OrbitrPlugin {
-  name: string;
-  version: string;
-  init(context: PluginContext): void;
-  processAudio?(buffer: AudioBuffer): AudioBuffer;
-  renderUI?(): React.Component;
-}
-```
-
-#### 4. Machine Learning Integration
-```python
-# Future: On-device ML for pattern suggestions
-class PatternSuggestionModel:
-    def __init__(self):
-        self.model = self.load_tensorflow_js_model()
-    
-    def suggest_next_steps(self, current_pattern):
-        return self.model.predict(current_pattern)
-```
-
-### Scalability Considerations
-
-```yaml
-10x Growth Plan:
-  - Microservices architecture
-  - GraphQL Federation
-  - Event-driven architecture
-  - Kubernetes orchestration
-  - Multi-region deployment
-  - Edge computing for audio
-
-100x Growth Plan:
-  - Custom CDN for samples
-  - Distributed generation fleet
-  - Blockchain for sample ownership
-  - Decentralized storage (IPFS)
-  - Native mobile apps
-  - Hardware acceleration
-```
-
----
-
-## Appendices
-
-### A. Performance Budgets
-
-```javascript
-// performance.config.js
-export const budgets = {
-  javascript: 500 * 1024,     // 500KB
-  css: 100 * 1024,            // 100KB
-  images: 200 * 1024,         // 200KB
-  fonts: 100 * 1024,          // 100KB
-  total: 1024 * 1024,         // 1MB
-  
-  metrics: {
-    FCP: 1500,                // First Contentful Paint
-    LCP: 2500,                // Largest Contentful Paint
-    FID: 100,                 // First Input Delay
-    CLS: 0.1,                 // Cumulative Layout Shift
-    TTI: 5000,                // Time to Interactive
-  }
-};
-```
-
-### B. Browser Compatibility Matrix
-
-```yaml
-Supported Browsers:
-  Chrome: 90+
-  Firefox: 88+
-  Safari: 14+
-  Edge: 90+
-  
-Required APIs:
-  - Web Audio API
-  - Web Workers
-  - IndexedDB
-  - WebGL (for visualizations)
-  - Clipboard API
-  - File System Access API (optional)
-  
-Polyfills:
-  - ResizeObserver
-  - IntersectionObserver
-  - Object.fromEntries
-```
-
-### C. Error Codes and Handling
-
-```typescript
-enum ErrorCode {
-  // Audio Errors (1xxx)
-  AUDIO_CONTEXT_FAILED = 1001,
-  AUDIO_DECODE_FAILED = 1002,
-  AUDIO_BUFFER_OVERFLOW = 1003,
-  
-  // Generation Errors (2xxx)
-  GENERATION_TIMEOUT = 2001,
-  GENERATION_INVALID_PROMPT = 2002,
-  GENERATION_QUOTA_EXCEEDED = 2003,
-  
-  // Network Errors (3xxx)
-  NETWORK_OFFLINE = 3001,
-  NETWORK_TIMEOUT = 3002,
-  NETWORK_RATE_LIMITED = 3003,
-  
-  // Storage Errors (4xxx)
-  STORAGE_QUOTA_EXCEEDED = 4001,
-  STORAGE_CORRUPTED = 4002,
-  STORAGE_PERMISSION_DENIED = 4003,
-}
-```
-
----
-
-## Document History
-
-| Version | Date       | Author | Changes                     |
-|---------|------------|--------|-----------------------------|
-| 1.0.0   | 2024-12-20 | AI     | Initial architecture design |
-| 1.1.0   | TBD        | TBD    | Add collaboration features  |
-| 2.0.0   | TBD        | TBD    | Microservices migration    |
-
----
-
-## References
-
-- [Web Audio API Specification](https://www.w3.org/TR/webaudio/)
-- [React Performance Optimization](https://react.dev/learn/render-and-commit)
-- [AudioCraft Documentation](https://github.com/facebookresearch/audiocraft)
-- [System Design Primer](https://github.com/donnemartin/system-design-primer)
-- [Music Theory for Computer Musicians](https://www.amazon.com/Theory-Computer-Musicians-Michael-Hewitt/dp/1598635034)
+| Command | Description |
+|---------|-------------|
+| `pnpm test` | Unit tests (Jest) |
+| `pnpm run test:watch` | Unit tests in watch mode |
+| `pnpm run test:coverage` | Coverage report |
+| `pnpm run test:e2e` | Playwright E2E (requires dev server) |

@@ -28,44 +28,49 @@ jobs:
   # Frontend Testing Pipeline
   frontend-tests:
     runs-on: ubuntu-latest
-    
+
     strategy:
       matrix:
         test-suite: [unit, performance, memory, integration]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Type checking
-      run: npm run type-check
+      run: pnpm run type-check
 
     - name: Lint code
-      run: npm run lint
+      run: pnpm run lint
 
     - name: Run ${{ matrix.test-suite }} tests
       run: |
         case "${{ matrix.test-suite }}" in
           "unit")
-            npm run test -- --testPathPattern="__tests__/(lib|components)" --coverage --coverageReporters=lcov
+            pnpm run test -- --testPathPattern="__tests__/(lib|components)" --coverage --coverageReporters=lcov
             ;;
           "performance")
-            npm run test -- --testPathPattern="__tests__/performance" --runInBand --detectOpenHandles
+            pnpm run test -- --testPathPattern="__tests__/performance" --runInBand --detectOpenHandles
             ;;
           "memory")
-            npm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles
+            pnpm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles
             ;;
           "integration")
-            npm run test -- --testPathPattern="__tests__/integration" --runInBand --detectOpenHandles
+            pnpm run test -- --testPathPattern="__tests__/integration" --runInBand --detectOpenHandles
             ;;
         esac
 
@@ -146,30 +151,35 @@ jobs:
   performance-benchmarks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Run performance benchmarks
       run: |
-        npm run test -- --testPathPattern="performance" --runInBand --verbose --detectOpenHandles
+        pnpm run test -- --testPathPattern="performance" --runInBand --verbose --detectOpenHandles
       env:
         NODE_OPTIONS: '--max-old-space-size=8192'
 
     - name: Generate performance report
       run: |
         mkdir -p performance-reports
-        npm run test -- --testPathPattern="load-testing" --runInBand --verbose --json --outputFile=performance-reports/performance-results.json || true
+        pnpm run test -- --testPathPattern="load-testing" --runInBand --verbose --json --outputFile=performance-reports/performance-results.json || true
 
     - name: Upload performance results
       uses: actions/upload-artifact@v4
@@ -198,11 +208,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Setup Python
       uses: actions/setup-python@v4
@@ -210,7 +225,7 @@ jobs:
         python-version: ${{ env.PYTHON_VERSION }}
 
     - name: Install frontend dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Install backend dependencies
       run: |
@@ -228,7 +243,7 @@ jobs:
         API_KEY: test-api-key-secure
 
     - name: Run integration tests
-      run: npm run test -- --testPathPattern="end-to-end" --runInBand --detectOpenHandles
+      run: pnpm run test -- --testPathPattern="end-to-end" --runInBand --detectOpenHandles
 
     - name: Upload integration test results
       if: always()
@@ -244,23 +259,28 @@ jobs:
   memory-leak-detection:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
 
     - name: Setup Node.js with increased memory
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Run memory leak tests
       run: |
-        npm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles --forceExit
+        pnpm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles --forceExit
       env:
         NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
 
@@ -279,23 +299,28 @@ jobs:
   # Security Vulnerability Scanning
   security-scan:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
-    - name: Run npm audit
+    - name: Run pnpm audit
       run: |
-        npm audit --audit-level=moderate --json > npm-audit-report.json || true
+        pnpm audit --audit-level=moderate --json > npm-audit-report.json || true
 
     - name: Run Snyk security scan
       uses: snyk/actions/node@master
@@ -386,22 +411,27 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality-gate]
     if: github.ref == 'refs/heads/main' && needs.quality-gate.result == 'success'
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+        cache: 'pnpm'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile
 
     - name: Build frontend
-      run: npm run build
+      run: pnpm run build
 
     - name: Validate build artifacts
       run: |

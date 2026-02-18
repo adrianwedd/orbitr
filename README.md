@@ -41,7 +41,7 @@ A web-based polyphonic circular step sequencer inspired by Playtronica's Orbita,
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ and npm
+- Node.js 18+ and pnpm (`npm install -g pnpm`)
 - Python 3.9+ (for AI backend)
 - Modern browser with Web Audio API support
 
@@ -55,7 +55,7 @@ cd orbitr
 
 2. **Install dependencies**
 ```bash
-npm install
+pnpm install
 ```
 
 3. **Set up Python backend (optional, for AI generation)**
@@ -75,13 +75,13 @@ cp .env.example .env
 
 5. **Run the application**
 ```bash
-npm run dev
-# Frontend: http://localhost:3001
+pnpm dev
+# Frontend: http://localhost:3000
 # Backend: http://localhost:8000
 
 # Or run individually:
-npm run dev:frontend  # Frontend only
-npm run dev:backend   # Backend only
+pnpm dev:frontend  # Frontend only
+pnpm dev:backend   # Backend only
 ```
 
 ## 🚀 Quick Deploy to GitHub Pages
@@ -90,7 +90,7 @@ ORBITR works perfectly on GitHub Pages with enhanced sample packs:
 
 ```bash
 # Build static version
-npm run build:static
+pnpm run build:static
 
 # Or just push to main branch for automatic deployment
 git push origin main
@@ -167,16 +167,16 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 ```bash
 # Run tests
-npm test
+pnpm test
 
 # Run linter
-npm run lint
+pnpm run lint
 
 # Type check
-npm run type-check
+pnpm run type-check
 
 # Build for production
-npm run build
+pnpm run build
 ```
 
 ## 📝 License

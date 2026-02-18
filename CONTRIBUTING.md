@@ -50,7 +50,7 @@ git clone https://github.com/your-username/orbitr.git
 cd orbitr
 
 # Install dependencies
-npm install
+pnpm install
 
 # Set up Python backend
 cd backend
@@ -63,7 +63,7 @@ cd ..
 cp .env.example .env
 
 # Run development server
-npm run dev
+pnpm dev
 ```
 
 ## Style Guide
@@ -131,13 +131,13 @@ export const ComponentName: React.FC<ComponentNameProps> = ({
 
 ```bash
 # Run all tests
-npm test
+pnpm test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm run test:watch
 
 # Run E2E tests
-npm run test:e2e
+pnpm run test:e2e
 ```
 
 ## Documentation

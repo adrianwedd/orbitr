@@ -22,13 +22,13 @@
     "nextjs"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev": "concurrently \"pnpm run dev:frontend\" \"pnpm run dev:backend\"",
     "dev:frontend": "next dev",
     "dev:backend": "cd backend && python app.py",
     "build": "next build",
     "build:static": "NEXT_EXPORT=true next build",
     "export": "next export",
-    "deploy:pages": "npm run build:static && touch out/.nojekyll",
+    "deploy:pages": "pnpm run build:static && touch out/.nojekyll",
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "next lint --fix",
@@ -88,6 +88,7 @@
   },
   "engines": {
     "node": ">=18.0.0",
-    "npm": ">=9.0.0"
-  }
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.30.0"
 }
