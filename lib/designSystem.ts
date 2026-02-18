@@ -414,7 +414,7 @@ export function generateCSSCustomProperties(audioData?: AudioAnalysisData): Reco
   return properties;
 }
 
-export default {
+const designSystem = {
   colors: colorPalette,
   audioReactiveColors,
   typography,
@@ -427,3 +427,5 @@ export default {
   interpolateColors,
   generateCSSCustomProperties
 };
+
+export default designSystem;

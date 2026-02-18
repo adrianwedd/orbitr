@@ -115,7 +115,7 @@ describe('Audio Performance Tests', () => {
               name: `Sample ${i}`,
               buffer: {} as AudioBuffer,
               duration: 1.0,
-              type: 'generated',
+              type: 'ai',
               prompt: `Prompt ${i}`
             })
           })
@@ -180,7 +180,7 @@ describe('Audio Performance Tests', () => {
               const source = mockAudioContext.createBufferSource()
               const gainNode = mockAudioContext.createGain()
               
-              source.buffer = track.steps[step].buffer
+              ;(source as any).buffer = track.steps[step].buffer
               source.connect(gainNode)
               gainNode.connect(mockAudioContext.destination)
               
@@ -301,7 +301,7 @@ describe('Audio Performance Tests', () => {
       // Mock AudioBuffer constructor to count allocations
       global.AudioBuffer = jest.fn().mockImplementation((...args) => {
         objectCreationCount.count++
-        return new originalAudioBuffer(...args)
+        return new (originalAudioBuffer as any)(...args)
       }) as any
 
       monitor.measure('object_allocation_test', () => {
@@ -345,7 +345,7 @@ describe('Audio Performance Tests', () => {
               name: `Async Sample ${i}`,
               buffer: {} as AudioBuffer,
               duration: 1.0,
-              type: 'generated',
+              type: 'ai',
               prompt: `Async prompt ${i}`
             })
           })

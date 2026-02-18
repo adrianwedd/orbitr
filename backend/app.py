@@ -17,8 +17,12 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 import numpy as np
-import torch
-import torchaudio
+try:
+    import torch
+    import torchaudio
+except (ImportError, OSError):
+    torch = None
+    torchaudio = None
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware

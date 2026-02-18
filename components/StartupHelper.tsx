@@ -38,7 +38,7 @@ export function StartupHelper() {
             Get started by loading an AI sample pack or upload your own audio files.
           </p>
           <p className="text-xs mt-2 text-emerald-200">
-            <strong>Quick start:</strong> Try the "{SAMPLE_PACKS[0].name}" pack below!
+            <strong>Quick start:</strong> Try the &quot;{SAMPLE_PACKS[0].name}&quot; pack below!
           </p>
           <button
             onClick={() => setShowWelcome(false)}

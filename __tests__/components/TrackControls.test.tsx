@@ -150,10 +150,16 @@ describe('TrackControls Component', () => {
       expect(defaultProps.onSoloToggle).toHaveBeenCalledWith('track1')
     })
 
-    it('should call onClearTrack when clear button clicked', () => {
+    it('should call onClearTrack when clear button clicked and confirmed', () => {
       render(<TrackControls {...defaultProps} />)
-      
-      fireEvent.click(screen.getByText('Clear Track'))
+
+      // Click the Clear Track button to open confirmation dialog
+      fireEvent.click(screen.getAllByText('Clear Track')[0])
+
+      // Confirm the dialog (the confirm button also has "Clear Track" text)
+      const confirmButtons = screen.getAllByText('Clear Track')
+      fireEvent.click(confirmButtons[confirmButtons.length - 1])
+
       expect(defaultProps.onClearTrack).toHaveBeenCalledWith('track1')
     })
   })

@@ -81,13 +81,12 @@ describe('Memory Leak Detection', () => {
             id: `test-${i}`,
             prompt: `Test prompt ${i}`,
             trackId: 'track1',
-            stepIndex: i % 16,
-            status: 'pending',
+            status: 'queued',
             progress: 0
           })
 
           // Process and remove from queue
-          result.current.updateQueueItem(`test-${i}`, { status: 'completed', progress: 100 })
+          result.current.updateQueueItem(`test-${i}`, { status: 'ready', progress: 100 })
           result.current.removeFromQueue(`test-${i}`)
         })
       }
@@ -165,7 +164,7 @@ describe('Memory Leak Detection', () => {
       const requestAnimationFrameSpy = jest.spyOn(window, 'requestAnimationFrame')
       const cancelAnimationFrameSpy = jest.spyOn(window, 'cancelAnimationFrame')
 
-      let animationId: number
+      let animationId: number = 0
 
       // Simulate animation loop
       const animate = () => {
@@ -210,7 +209,7 @@ describe('Memory Leak Detection', () => {
             name: mockFile.name,
             buffer: mockBuffer,
             duration: 2.0,
-            type: 'uploaded',
+            type: 'local',
             prompt: ''
           })
         })
@@ -229,7 +228,7 @@ describe('Memory Leak Detection', () => {
 
       // Mock FileReader to track instances
       const OriginalFileReader = window.FileReader
-      window.FileReader = jest.fn().mockImplementation(() => {
+      ;(window as any).FileReader = jest.fn().mockImplementation(() => {
         const reader = new OriginalFileReader()
         fileReaderInstances.push(reader)
         return reader
@@ -252,7 +251,7 @@ describe('Memory Leak Detection', () => {
       }
 
       // Restore original FileReader
-      window.FileReader = OriginalFileReader
+      ;(window as any).FileReader = OriginalFileReader
 
       // Verify all instances were created
       expect(fileReaderInstances).toHaveLength(5)
@@ -285,7 +284,7 @@ describe('Memory Leak Detection', () => {
         
         // Simulate source completion
         if (source.onended) {
-          source.onended(new Event('ended'))
+          ;(source as any).onended(new Event('ended'))
         }
         
         // Cleanup should disconnect source

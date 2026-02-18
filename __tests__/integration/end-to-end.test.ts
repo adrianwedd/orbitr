@@ -35,12 +35,32 @@ const mockAudioContext = {
 }
 
 global.AudioContext = jest.fn(() => mockAudioContext) as any
-global.webkitAudioContext = global.AudioContext
+(global as any).webkitAudioContext = global.AudioContext
 
 describe('End-to-End Integration Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    
+
+    // Reset Zustand store state between tests
+    useAudioStore.setState(state => ({
+      library: [],
+      genQueue: [],
+      isPlaying: false,
+      bpm: 120,
+      swing: 0,
+      masterGain: 1,
+      selectedTrack: null,
+      selectedStep: null,
+      currentStep: 0,
+      tracks: state.tracks.map(track => ({
+        ...track,
+        volume: 0.8,
+        muted: false,
+        solo: false,
+        steps: track.steps.map(step => ({ ...step, active: false, buffer: null }))
+      }))
+    }))
+
     // Reset audio context mocks
     mockAudioContext.currentTime = 0
     mockAudioContext.decodeAudioData.mockResolvedValue({
@@ -72,8 +92,7 @@ describe('End-to-End Integration Tests', () => {
           id: 'gen-1',
           prompt: 'techno kick drum',
           trackId: 'track1',
-          stepIndex: 0,
-          status: 'pending',
+          status: 'queued',
           progress: 0
         })
 
@@ -86,7 +105,7 @@ describe('End-to-End Integration Tests', () => {
 
         // 3. Update progress
         result.current.updateGenerationProgress('gen-1', 50, 'generating')
-        result.current.updateGenerationProgress('gen-1', 100, 'completed')
+        result.current.updateGenerationProgress('gen-1', 100, 'ready')
 
         // 4. Process response and add to library
         const audioBuffer = await mockAudioContext.decodeAudioData(
@@ -98,7 +117,7 @@ describe('End-to-End Integration Tests', () => {
           name: response.data.name,
           buffer: audioBuffer as AudioBuffer,
           duration: audioBuffer.duration,
-          type: 'generated',
+          type: 'ai',
           prompt: 'techno kick drum'
         })
 
@@ -137,8 +156,7 @@ describe('End-to-End Integration Tests', () => {
           id: 'gen-fail',
           prompt: 'failing prompt',
           trackId: 'track2',
-          stepIndex: 4,
-          status: 'pending',
+          status: 'queued',
           progress: 0
         })
 
@@ -150,7 +168,7 @@ describe('End-to-End Integration Tests', () => {
           })
         } catch (error) {
           // Update generation status to failed
-          result.current.updateGenerationProgress('gen-fail', 0, 'failed')
+          result.current.updateGenerationProgress('gen-fail', 0, 'error')
         }
 
         // Remove failed generation
@@ -182,8 +200,7 @@ describe('End-to-End Integration Tests', () => {
           id: 'gen-cached',
           prompt: 'bass drum hit',
           trackId: 'track3',
-          stepIndex: 8,
-          status: 'pending',
+          status: 'queued',
           progress: 0
         })
 
@@ -194,7 +211,7 @@ describe('End-to-End Integration Tests', () => {
         })
 
         // Cached responses should complete immediately
-        result.current.updateGenerationProgress('gen-cached', 100, 'completed')
+        result.current.updateGenerationProgress('gen-cached', 100, 'ready')
 
         const audioBuffer = await mockAudioContext.decodeAudioData(
           new ArrayBuffer(2048)
@@ -205,7 +222,7 @@ describe('End-to-End Integration Tests', () => {
           name: response.data.name,
           buffer: audioBuffer as AudioBuffer,
           duration: 2.0,
-          type: 'generated',
+          type: 'ai',
           prompt: 'bass drum hit'
         })
 
@@ -307,7 +324,7 @@ describe('End-to-End Integration Tests', () => {
         } as AudioBuffer
 
         // Track 1: Steps 0, 4, 8, 12
-        [0, 4, 8, 12].forEach(step => {
+        ;[0, 4, 8, 12].forEach(step => {
           result.current.updateStepMulti('track1', step, {
             active: true,
             buffer: mockBuffer
@@ -315,7 +332,7 @@ describe('End-to-End Integration Tests', () => {
         })
 
         // Track 2: Steps 2, 6, 10, 14
-        [2, 6, 10, 14].forEach(step => {
+        ;[2, 6, 10, 14].forEach(step => {
           result.current.updateStepMulti('track2', step, {
             active: true,
             buffer: mockBuffer
@@ -325,14 +342,15 @@ describe('End-to-End Integration Tests', () => {
         // Simulate one complete cycle of playback
         for (let step = 0; step < 16; step++) {
           result.current.setCurrentStep(step)
-          
-          // Simulate audio scheduling for active steps
-          result.current.tracks.forEach(track => {
+
+          // Use getState() to get the latest Zustand state (result.current may be stale inside act)
+          const currentTracks = useAudioStore.getState().tracks
+          currentTracks.forEach(track => {
             if (track.steps[step].active && track.steps[step].buffer && !track.muted) {
               const source = mockAudioContext.createBufferSource()
               const gainNode = mockAudioContext.createGain()
               
-              source.buffer = track.steps[step].buffer
+              ;(source as any).buffer = track.steps[step].buffer
               gainNode.gain.value = track.volume * track.steps[step].gain
               
               source.connect(gainNode)
@@ -375,28 +393,31 @@ describe('End-to-End Integration Tests', () => {
             name: sample.name,
             buffer: mockBuffer,
             duration: sample.duration,
-            type: 'generated',
+            type: 'ai',
             prompt: sample.prompt
           })
         })
 
-        // Assign samples to different tracks
+        // Use getState() to get the latest library state (result.current may be stale inside act)
+        const lib = useAudioStore.getState().library
+
+        // Assign samples to different tracks (library is prepended, so lib[0] is last added)
         result.current.updateStepMulti('track1', 0, {
           active: true,
-          buffer: result.current.library[0].buffer,
-          name: result.current.library[0].name
+          buffer: lib[2].buffer,
+          name: lib[2].name
         })
 
         result.current.updateStepMulti('track2', 4, {
           active: true,
-          buffer: result.current.library[1].buffer,
-          name: result.current.library[1].name
+          buffer: lib[1].buffer,
+          name: lib[1].name
         })
 
         result.current.updateStepMulti('track3', 2, {
           active: true,
-          buffer: result.current.library[2].buffer,
-          name: result.current.library[2].name
+          buffer: lib[0].buffer,
+          name: lib[0].name
         })
       })
 
@@ -423,7 +444,7 @@ describe('End-to-End Integration Tests', () => {
           name: 'Original.wav',
           buffer: originalBuffer,
           duration: 1.0,
-          type: 'uploaded',
+          type: 'local',
           prompt: ''
         })
 
@@ -446,7 +467,7 @@ describe('End-to-End Integration Tests', () => {
           name: 'Replacement.wav',
           buffer: newBuffer,
           duration: 1.5,
-          type: 'generated',
+          type: 'ai',
           prompt: 'better drum sound'
         })
 
@@ -492,12 +513,12 @@ describe('End-to-End Integration Tests', () => {
           name: 'Persistent.wav',
           buffer: mockBuffer,
           duration: 0.8,
-          type: 'generated',
+          type: 'ai',
           prompt: 'test persistence'
         })
 
         // Set up pattern
-        [0, 2, 4, 6].forEach(step => {
+        ;[0, 2, 4, 6].forEach(step => {
           result.current.updateStepMulti('track3', step, {
             active: true,
             buffer: mockBuffer,
@@ -571,7 +592,7 @@ describe('End-to-End Integration Tests', () => {
           await mockAudioContext.decodeAudioData(new ArrayBuffer(1024))
         } catch (error) {
           // Should handle error gracefully
-          console.warn('Audio context error handled:', error.message)
+          console.warn('Audio context error handled:', (error as Error).message)
         }
 
         // Continue normal operation
@@ -596,7 +617,7 @@ describe('End-to-End Integration Tests', () => {
           name: 'Test.wav',
           buffer: mockBuffer,
           duration: 1.0,
-          type: 'uploaded',
+          type: 'local',
           prompt: ''
         })
 

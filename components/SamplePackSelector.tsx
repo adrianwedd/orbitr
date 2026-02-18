@@ -211,7 +211,7 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-zinc-400 truncate italic">"{sample.prompt}"</p>
+                        <p className="text-xs text-zinc-400 truncate italic">&quot;{sample.prompt}&quot;</p>
                       </div>
                       <Tooltip content="Generate this sample" side="top">
                         <button

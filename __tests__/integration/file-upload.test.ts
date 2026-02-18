@@ -14,12 +14,14 @@ const createMockFile = (
   size?: number
 ): File => {
   const blob = new Blob([content], { type })
-  Object.defineProperty(blob, 'size', {
-    value: size || content.length,
-    writable: false
-  })
-  
-  return new File([blob], filename, { type })
+  const file = new File([blob], filename, { type })
+  if (size !== undefined) {
+    Object.defineProperty(file, 'size', {
+      configurable: true,
+      value: size
+    })
+  }
+  return file
 }
 
 // Mock FileReader for testing
@@ -38,12 +40,12 @@ class MockFileReader {
       const buffer = new ArrayBuffer(1024)
       this.result = buffer
       if (this.onload) {
-        this.onload({ target: this } as ProgressEvent<FileReader>)
+        this.onload({ target: this } as unknown as ProgressEvent<FileReader>)
       }
     } else {
       // Mock invalid file
       if (this.onerror) {
-        this.onerror({ target: this } as ProgressEvent<FileReader>)
+        this.onerror({ target: this } as unknown as ProgressEvent<FileReader>)
       }
     }
   }
@@ -52,7 +54,7 @@ class MockFileReader {
     Promise.resolve().then(() => {
       this.result = `data:${file.type};base64,mock-base64-data`
       if (this.onload) {
-        this.onload({ target: this } as ProgressEvent<FileReader>)
+        this.onload({ target: this } as unknown as ProgressEvent<FileReader>)
       }
     })
   }
@@ -75,7 +77,10 @@ global.AudioContext = jest.fn().mockImplementation(() => ({
 describe('File Upload Integration Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    
+
+    // Reset Zustand store state between tests
+    useAudioStore.setState({ library: [], genQueue: [] })
+
     // Default successful audio decoding
     mockDecodeAudioData.mockResolvedValue({
       duration: 2.5,
@@ -97,7 +102,7 @@ describe('File Upload Integration Tests', () => {
           name: 'direct-test.wav',
           buffer: {} as AudioBuffer,
           duration: 1.0,
-          type: 'uploaded',
+          type: 'local',
           prompt: ''
         })
       })
@@ -123,7 +128,7 @@ describe('File Upload Integration Tests', () => {
                 name: wavFile.name,
                 buffer: {} as AudioBuffer,
                 duration: 2.5,
-                type: 'uploaded',
+                type: 'local',
                 prompt: ''
               })
             }
@@ -135,7 +140,7 @@ describe('File Upload Integration Tests', () => {
 
       expect(result.current.library).toHaveLength(1)
       expect(result.current.library[0].name).toBe('test.wav')
-      expect(result.current.library[0].type).toBe('uploaded')
+      expect(result.current.library[0].type).toBe('local')
     })
 
     it('should handle valid MP3 file upload', async () => {
@@ -151,7 +156,7 @@ describe('File Upload Integration Tests', () => {
               name: mp3File.name,
               buffer: {} as AudioBuffer,
               duration: 3.2,
-              type: 'uploaded',
+              type: 'local',
               prompt: ''
             })
             resolve()
@@ -184,7 +189,7 @@ describe('File Upload Integration Tests', () => {
                 name: file.name,
                 buffer: {} as AudioBuffer,
                 duration: 1.0 + i,
-                type: 'uploaded',
+                type: 'local',
                 prompt: ''
               })
               resolve()
@@ -349,7 +354,7 @@ describe('File Upload Integration Tests', () => {
             name: specialFile.name,
             buffer: {} as AudioBuffer,
             duration: 1.0,
-            type: 'uploaded',
+            type: 'local',
             prompt: ''
           })
         }
@@ -380,7 +385,7 @@ describe('File Upload Integration Tests', () => {
             name: truncatedName,
             buffer: {} as AudioBuffer,
             duration: 1.0,
-            type: 'uploaded',
+            type: 'local',
             prompt: ''
           })
         }
@@ -415,7 +420,7 @@ describe('File Upload Integration Tests', () => {
             name: shortFile.name,
             buffer: audioBuffer as AudioBuffer,
             duration: audioBuffer.duration,
-            type: 'uploaded',
+            type: 'local',
             prompt: ''
           })
         }
@@ -461,7 +466,7 @@ describe('File Upload Integration Tests', () => {
               name: file.name,
               buffer: {} as AudioBuffer,
               duration: 1.5,
-              type: 'uploaded',
+              type: 'local',
               prompt: ''
             })
           }
@@ -500,7 +505,7 @@ describe('File Upload Integration Tests', () => {
               name: file.name,
               buffer: {} as AudioBuffer,
               duration: 1.0,
-              type: 'uploaded',
+              type: 'local',
               prompt: ''
             })
           }
@@ -511,8 +516,9 @@ describe('File Upload Integration Tests', () => {
       })
 
       expect(result.current.library).toHaveLength(3) // Only audio files
+      // Library prepends items, so the last processed file is at index 0
       expect(result.current.library.map(s => s.name)).toEqual([
-        'file1.wav', 'file2.wav', 'file3.mp3'
+        'file3.mp3', 'file2.wav', 'file1.wav'
       ])
     })
   })

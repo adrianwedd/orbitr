@@ -250,7 +250,7 @@ export function SampleLibrary({ library, onFileUpload }: SampleLibraryProps) {
         {/* File-specific upload errors */}
         {uploadErrors.length > 0 && (
           <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-700 rounded-lg">
-            <p className="text-yellow-400 text-sm font-medium mb-2">Some files couldn't be uploaded:</p>
+            <p className="text-yellow-400 text-sm font-medium mb-2">Some files couldn&apos;t be uploaded:</p>
             <ul className="text-yellow-300 text-xs space-y-1">
               {uploadErrors.map((err, i) => (
                 <li key={i}>
@@ -296,7 +296,7 @@ export function SampleLibrary({ library, onFileUpload }: SampleLibraryProps) {
               <div className="flex items-center gap-3 text-xs text-zinc-500 mt-1">
                 <span>{item.duration.toFixed(2)}s</span>
                 {item.prompt && (
-                  <span className="truncate italic">"{item.prompt}"</span>
+                  <span className="truncate italic">&quot;{item.prompt}&quot;</span>
                 )}
               </div>
             </div>

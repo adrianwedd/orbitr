@@ -26,7 +26,7 @@
     "dev:frontend": "next dev",
     "dev:backend": "cd backend && python app.py",
     "build": "next build",
-    "build:static": "NODE_ENV=production next build",
+    "build:static": "NEXT_EXPORT=true next build",
     "export": "next export",
     "deploy:pages": "npm run build:static && touch out/.nojekyll",
     "start": "next start",

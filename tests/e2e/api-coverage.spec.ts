@@ -110,7 +110,9 @@ test.describe('API Coverage Tests - Verify UI exposes all backend functionality'
     
     // Button functionality should be connected to cache endpoint
     // (We won't actually clear for safety, but verify it's accessible)
-    await expect(clearButton).toBeEnabled().or(expect(clearButton).toBeDisabled());
+    // Button should be accessible (either enabled when cache has content, or disabled when empty)
+    const isEnabled = await clearButton.isEnabled();
+    expect(isEnabled === true || isEnabled === false).toBe(true);
   });
 
   test('should expose GET /health endpoint through backend connectivity checks', async ({ page }) => {

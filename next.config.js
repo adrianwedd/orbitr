@@ -9,15 +9,15 @@ const nextConfig = {
     };
     return config;
   },
-  // GitHub Pages configuration
-  output: process.env.NODE_ENV === 'production' ? 'export' : undefined,
-  trailingSlash: true,
+  // GitHub Pages configuration (only when NEXT_EXPORT=true, not on every production build)
+  output: process.env.NEXT_EXPORT === 'true' ? 'export' : undefined,
+  trailingSlash: process.env.NEXT_EXPORT === 'true',
   images: {
     unoptimized: true,
   },
   // Set base path for GitHub Pages
-  basePath: process.env.NODE_ENV === 'production' ? '/orbitr' : '',
-  assetPrefix: process.env.NODE_ENV === 'production' ? '/orbitr/' : '',
+  basePath: process.env.NEXT_EXPORT === 'true' ? '/orbitr' : '',
+  assetPrefix: process.env.NEXT_EXPORT === 'true' ? '/orbitr/' : '',
 }
 
 module.exports = nextConfig

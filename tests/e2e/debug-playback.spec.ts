@@ -44,7 +44,7 @@ test('debug playback issue', async ({ page }) => {
   }
   
   // Check console for any audio errors
-  const logs = [];
+  const logs: string[] = [];
   page.on('console', msg => logs.push(msg.text()));
   
   await page.waitForTimeout(1000);
