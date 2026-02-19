@@ -8,9 +8,11 @@ import axios from 'axios';
 
 interface SamplePackSelectorProps {
   onPackLoad?: (packId: string) => void;
+  embedded?: boolean;
+  hideHeader?: boolean;
 }
 
-export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
+export function SamplePackSelector({ onPackLoad, embedded = false, hideHeader = false }: SamplePackSelectorProps) {
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const [expandedPack, setExpandedPack] = useState<string | null>(null);
   
@@ -151,11 +153,13 @@ export function SamplePackSelector({ onPackLoad }: SamplePackSelectorProps) {
   };
 
   return (
-    <div className="bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold">AI Sample Packs</h2>
-        <span className="text-sm text-zinc-400">{SAMPLE_PACKS.length} curated packs</span>
-      </div>
+    <div className={`${embedded ? 'text-zinc-100' : 'bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl'}`}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">AI Sample Packs</h2>
+          <span className="text-sm text-zinc-400">{SAMPLE_PACKS.length} curated packs</span>
+        </div>
+      )}
 
       <div className="space-y-3">
         {SAMPLE_PACKS.map((pack) => (

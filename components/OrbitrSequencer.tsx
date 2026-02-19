@@ -11,6 +11,7 @@ import { StartupHelper } from './StartupHelper';
 import { EnhancedSequencer } from './EnhancedSequencer';
 import { Tooltip, KeyboardShortcutTooltip } from './ui/Tooltip';
 import { KeyboardShortcutsHelp } from './ui/KeyboardShortcutsHelp';
+import { CollapsiblePanel } from './ui/CollapsiblePanel';
 import { deg2rad, rid } from '@/lib/utils';
 import { SampleLibraryItem } from '@/lib/types';
 import { getApiUrl, config, audioDebugLog, generationDebugLog } from '@/lib/config';
@@ -127,6 +128,10 @@ export default function OrbitrSequencer() {
     setError,
     clearError
   } = useAudioStore();
+  const tracksRef = useRef(tracks);
+  const bpmRef = useRef(bpm);
+  const swingRef = useRef(swing);
+  const reverseRef = useRef(reverse);
 
   // Get current track's steps
   const currentTrackSteps = useMemo(() => {
@@ -137,6 +142,43 @@ export default function OrbitrSequencer() {
     return tracks[0]?.steps || [];
   }, [tracks, selectedTrack]);
 
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  useEffect(() => {
+    bpmRef.current = bpm;
+  }, [bpm]);
+
+  useEffect(() => {
+    swingRef.current = swing;
+  }, [swing]);
+
+  useEffect(() => {
+    reverseRef.current = reverse;
+  }, [reverse]);
+
+  const reverseBuffer = useCallback((buffer: AudioBuffer): AudioBuffer => {
+    if (!audioEngine.audioContextRef.current) return buffer;
+    
+    const ctx = audioEngine.audioContextRef.current;
+    const reversedBuffer = ctx.createBuffer(
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
+    );
+    
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const channelData = buffer.getChannelData(channel);
+      const reversedData = reversedBuffer.getChannelData(channel);
+      for (let i = 0; i < channelData.length; i++) {
+        reversedData[i] = channelData[channelData.length - 1 - i];
+      }
+    }
+    
+    return reversedBuffer;
+  }, [audioEngine.audioContextRef]);
+
   // Audio scheduling functions
   const scheduleNote = useCallback((buffer: AudioBuffer, time: number, gain: number = 1) => {
     if (!audioEngine.audioContextRef.current || !audioEngine.masterGainRef.current) return;
@@ -145,7 +187,7 @@ export default function OrbitrSequencer() {
       const source = audioEngine.audioContextRef.current.createBufferSource();
       const gainNode = audioEngine.audioContextRef.current.createGain();
       
-      source.buffer = reverse ? reverseBuffer(buffer) : buffer;
+      source.buffer = reverseRef.current ? reverseBuffer(buffer) : buffer;
       source.connect(gainNode);
       gainNode.connect(audioEngine.masterGainRef.current);
       gainNode.gain.value = gain;
@@ -173,28 +215,7 @@ export default function OrbitrSequencer() {
     } catch (error) {
       console.error('Failed to schedule note:', error);
     }
-  }, [audioEngine.audioContextRef, audioEngine.masterGainRef, reverse]);
-
-  const reverseBuffer = useCallback((buffer: AudioBuffer): AudioBuffer => {
-    if (!audioEngine.audioContextRef.current) return buffer;
-    
-    const ctx = audioEngine.audioContextRef.current;
-    const reversedBuffer = ctx.createBuffer(
-      buffer.numberOfChannels,
-      buffer.length,
-      buffer.sampleRate
-    );
-    
-    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel);
-      const reversedData = reversedBuffer.getChannelData(channel);
-      for (let i = 0; i < channelData.length; i++) {
-        reversedData[i] = channelData[channelData.length - 1 - i];
-      }
-    }
-    
-    return reversedBuffer;
-  }, [audioEngine.audioContextRef]);
+  }, [audioEngine.audioContextRef, audioEngine.masterGainRef, reverseBuffer]);
 
   const scheduler = useCallback(() => {
     if (!audioEngine.audioContextRef.current) return;
@@ -203,18 +224,20 @@ export default function OrbitrSequencer() {
     
     while (audioEngine.nextNoteTimeRef.current < currentTime + audioEngine.scheduleAheadTime) {
       const stepIndex = audioEngine.currentStepRef.current;
+      const currentTracks = tracksRef.current;
+      const currentSwing = swingRef.current;
+      const currentBpm = bpmRef.current;
+      const hasSoloTracks = currentTracks.some(t => t.solo);
       
       // Schedule notes for all tracks
-      tracks.forEach(track => {
+      currentTracks.forEach(track => {
         if (track.muted) return;
         
-        // Check if any track is soloed
-        const hasSoloTracks = tracks.some(t => t.solo);
         if (hasSoloTracks && !track.solo) return;
         
         const step = track.steps[stepIndex];
         if (step.active && step.buffer && Math.random() < step.prob) {
-          const swingDelay = (stepIndex % 2 === 1) ? swing * 0.1 : 0;
+          const swingDelay = (stepIndex % 2 === 1) ? currentSwing * 0.1 : 0;
           scheduleNote(
             step.buffer,
             audioEngine.nextNoteTimeRef.current + swingDelay,
@@ -224,14 +247,14 @@ export default function OrbitrSequencer() {
       });
       
       // Advance to next step
-      const stepDuration = 60.0 / bpm / 4; // 16th notes
+      const stepDuration = 60.0 / currentBpm / 4; // 16th notes
       audioEngine.nextNoteTimeRef.current += stepDuration;
       audioEngine.currentStepRef.current = (audioEngine.currentStepRef.current + 1) % STEPS_COUNT;
       setCurrentStep(audioEngine.currentStepRef.current);
     }
     
     audioEngine.schedulerTimerRef.current = window.setTimeout(scheduler, audioEngine.lookAhead);
-  }, [audioEngine, tracks, scheduleNote, bpm, swing]);
+  }, [audioEngine, scheduleNote]);
 
   const startPlayback = useCallback(async () => {
     try {
@@ -250,7 +273,7 @@ export default function OrbitrSequencer() {
       // The user should see the button shows "playing" even if audio doesn't work
       console.log('Audio failed but keeping UI in playing state');
     }
-  }, [audioEngine, scheduler, setError]);
+  }, [audioEngine, scheduler]);
 
   const stopPlayback = useCallback(() => {
     console.log('stopPlayback called - this will set isPlaying to false');
@@ -489,58 +512,68 @@ export default function OrbitrSequencer() {
         </div>
 
         {/* Right Panel */}
-        <div className="space-y-6">
-          {/* Track Controls */}
-          <TrackControls
-            tracks={tracks}
-            selectedTrack={selectedTrack}
-            onSelectTrack={setSelectedTrack}
-            onVolumeChange={setTrackVolume}
-            onMuteToggle={(trackId) => {
-              const track = tracks.find(t => t.id === trackId);
-              if (track) setTrackMute(trackId, !track.muted);
-            }}
-            onSoloToggle={(trackId) => {
-              const track = tracks.find(t => t.id === trackId);
-              if (track) setTrackSolo(trackId, !track.solo);
-            }}
-            onClearTrack={clearTrack}
-          />
-          
-          {/* AI Sample Packs */}
-          <SamplePackSelector
-            onPackLoad={(packId) => {
-              // Optional: Show success message or auto-switch to library view
-              console.log(`Loaded sample pack: ${packId}`);
-            }}
-          />
-          
-          {/* Step Editor */}
-          <StepEditor
-            steps={currentTrackSteps}
-            onStepChange={updateStep}
-            onAssign={assignToStep}
-            onGenerate={handleGenerate}
-            onClear={(stepIdx: number) => {
-              if (selectedTrack) {
-                clearStepMulti(selectedTrack, stepIdx);
-              }
-            }}
-            library={library}
-          />
+        <div className="space-y-4">
+          <CollapsiblePanel title="Track Controls" defaultOpen={true}>
+            <TrackControls
+              tracks={tracks}
+              selectedTrack={selectedTrack}
+              onSelectTrack={setSelectedTrack}
+              onVolumeChange={setTrackVolume}
+              onMuteToggle={(trackId) => {
+                const track = tracks.find(t => t.id === trackId);
+                if (track) setTrackMute(trackId, !track.muted);
+              }}
+              onSoloToggle={(trackId) => {
+                const track = tracks.find(t => t.id === trackId);
+                if (track) setTrackSolo(trackId, !track.solo);
+              }}
+              onClearTrack={clearTrack}
+            />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Sample Packs" defaultOpen={false}>
+            <SamplePackSelector
+              embedded
+              hideHeader
+              onPackLoad={(packId) => {
+                console.log(`Loaded sample pack: ${packId}`);
+              }}
+            />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel title="Step Editor" defaultOpen={true}>
+            <StepEditor
+              embedded
+              hideHeader
+              steps={currentTrackSteps}
+              onStepChange={updateStep}
+              onAssign={assignToStep}
+              onGenerate={handleGenerate}
+              onClear={(stepIdx: number) => {
+                if (selectedTrack) {
+                  clearStepMulti(selectedTrack, stepIdx);
+                }
+              }}
+              library={library}
+            />
+          </CollapsiblePanel>
         </div>
       </div>
 
       {/* Bottom Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sample Library */}
-        <SampleLibrary
-          library={library}
-          onFileUpload={handleFileUpload}
-        />
-        
-        {/* Generation Queue */}
-        <GenerationQueue queue={genQueue} />
+        <CollapsiblePanel title="Sample Library" defaultOpen={false}>
+          <SampleLibrary
+            embedded
+            hideHeader
+            library={library}
+            onFileUpload={handleFileUpload}
+          />
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Generation Queue" defaultOpen={true}>
+          <GenerationQueue embedded hideHeader queue={genQueue} />
+        </CollapsiblePanel>
       </div>
       
       {/* Startup Helper */}

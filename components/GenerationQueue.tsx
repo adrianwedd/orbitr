@@ -4,9 +4,11 @@ import { useAudioStore } from '@/lib/audioStore';
 
 interface GenerationQueueProps {
   queue: GenerationQueueItem[];
+  embedded?: boolean;
+  hideHeader?: boolean;
 }
 
-export function GenerationQueue({ queue }: GenerationQueueProps) {
+export function GenerationQueue({ queue, embedded = false, hideHeader = false }: GenerationQueueProps) {
   const { isLoading, loadingMessage } = useAudioStore();
   const activeItems = queue.filter(q => q.status === 'generating');
   const completedItems = queue.filter(q => q.status === 'ready').slice(-5);
@@ -14,18 +16,30 @@ export function GenerationQueue({ queue }: GenerationQueueProps) {
   const queuedItems = queue.filter(q => q.status === 'queued');
 
   return (
-    <div className="bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold">Generation Queue</h2>
-        {(activeItems.length > 0 || isLoading) && (
+    <div className={`${embedded ? 'text-zinc-100' : 'bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl'}`}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">Generation Queue</h2>
+          {(activeItems.length > 0 || isLoading) && (
+            <div className="flex items-center gap-2">
+              <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full"></div>
+              <span className="text-xs text-purple-400">
+                {isLoading && loadingMessage ? loadingMessage : 'Generating...'}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+      {hideHeader && (activeItems.length > 0 || isLoading) && (
+        <div className="flex justify-end mb-3">
           <div className="flex items-center gap-2">
             <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full"></div>
             <span className="text-xs text-purple-400">
               {isLoading && loadingMessage ? loadingMessage : 'Generating...'}
             </span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       
       {activeItems.length === 0 && completedItems.length === 0 && errorItems.length === 0 && queuedItems.length === 0 ? (
         <div className="text-sm text-zinc-500 text-center py-4">
@@ -95,18 +109,20 @@ export function GenerationQueue({ queue }: GenerationQueueProps) {
         </div>
       )}
       
-      <div className="mt-4 pt-4 border-t border-zinc-800">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-zinc-500">
-            Using MusicGen backend • Draft: melody model • HQ: large model
-          </p>
-          {queue.length > 0 && (
-            <span className="text-xs text-zinc-400">
-              {activeItems.length + queuedItems.length} pending
-            </span>
-          )}
+      {!hideHeader && (
+        <div className="mt-4 pt-4 border-t border-zinc-800">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-zinc-500">
+              Using MusicGen backend • Draft: melody model • HQ: large model
+            </p>
+            {queue.length > 0 && (
+              <span className="text-xs text-zinc-400">
+                {activeItems.length + queuedItems.length} pending
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

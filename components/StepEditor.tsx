@@ -11,6 +11,8 @@ interface StepEditorProps {
   onGenerate: (prompt: string, stepIdx?: number, options?: any) => Promise<any>;
   onClear: (stepIdx: number) => void;
   library: SampleLibraryItem[];
+  embedded?: boolean;
+  hideHeader?: boolean;
 }
 
 export function StepEditor({ 
@@ -19,7 +21,9 @@ export function StepEditor({
   onAssign, 
   onGenerate, 
   onClear,
-  library 
+  library,
+  embedded = false,
+  hideHeader = false
 }: StepEditorProps) {
   const [focused, setFocused] = useState(0);
   const [generatingStep, setGeneratingStep] = useState<number | null>(null);
@@ -51,27 +55,50 @@ export function StepEditor({
   };
 
   return (
-    <div className="bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold">Step Editor</h2>
-        <div className="flex items-center gap-2">
-          <Tooltip content="Select step to edit (use 1-9, 0, Q-Y keys)" side="top">
-            <label className="text-sm text-zinc-400 cursor-help">Step</label>
-          </Tooltip>
-          <select
-            className="bg-zinc-800 rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={focused}
-            onChange={(e) => setFocused(parseInt(e.target.value, 10))}
-            aria-label="Select step to edit"
-          >
-            {steps.map((_, i) => (
-              <option key={i} value={i}>
-                Step {i + 1}
-              </option>
-            ))}
-          </select>
+    <div className={`${embedded ? 'text-zinc-100' : 'bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl'}`}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">Step Editor</h2>
+          <div className="flex items-center gap-2">
+            <Tooltip content="Select step to edit (use 1-9, 0, Q-Y keys)" side="top">
+              <label className="text-sm text-zinc-400 cursor-help">Step</label>
+            </Tooltip>
+            <select
+              className="bg-zinc-800 rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
+              value={focused}
+              onChange={(e) => setFocused(parseInt(e.target.value, 10))}
+              aria-label="Select step to edit"
+            >
+              {steps.map((_, i) => (
+                <option key={i} value={i}>
+                  Step {i + 1}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+      )}
+      {hideHeader && (
+        <div className="flex items-center justify-end mb-4">
+          <div className="flex items-center gap-2">
+            <Tooltip content="Select step to edit (use 1-9, 0, Q-Y keys)" side="top">
+              <label className="text-sm text-zinc-400 cursor-help">Step</label>
+            </Tooltip>
+            <select
+              className="bg-zinc-800 rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
+              value={focused}
+              onChange={(e) => setFocused(parseInt(e.target.value, 10))}
+              aria-label="Select step to edit"
+            >
+              {steps.map((_, i) => (
+                <option key={i} value={i}>
+                  Step {i + 1}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Sample Assignment */}

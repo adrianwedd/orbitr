@@ -10,6 +10,8 @@ interface SampleLibraryProps {
   library: SampleLibraryItem[];
   onFileUpload: (files: File[]) => void;
   onAssignToStep?: (stepIdx: number, libId: string) => void;
+  embedded?: boolean;
+  hideHeader?: boolean;
 }
 
 interface FileUploadError {
@@ -17,7 +19,7 @@ interface FileUploadError {
   error: string;
 }
 
-export function SampleLibrary({ library, onFileUpload }: SampleLibraryProps) {
+export function SampleLibrary({ library, onFileUpload, embedded = false, hideHeader = false }: SampleLibraryProps) {
   const { isLoading, loadingMessage, errorMessage, setLoading, setError, clearError } = useAudioStore();
   const [uploadErrors, setUploadErrors] = useState<FileUploadError[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -137,63 +139,74 @@ export function SampleLibrary({ library, onFileUpload }: SampleLibraryProps) {
       }, 100);
     }
   };
+  const cacheControls = (
+    <div className="flex items-center gap-2">
+      <Tooltip
+        content={
+          <div className="text-center">
+            <div className="font-medium">AI Sample Cache</div>
+            <div className="text-xs text-zinc-400 mt-1">
+              {formatBytes(cacheInfo.size)} / {formatBytes(cacheInfo.maxSize)}
+            </div>
+            <div className="text-xs text-zinc-400">
+              {cacheInfo.files} cached files
+            </div>
+            <div className="text-xs text-zinc-400 mt-1">
+              {getCacheUsagePercentage().toFixed(1)}% used
+            </div>
+          </div>
+        }
+        side="top"
+      >
+        <div className="flex items-center gap-1 text-xs">
+          <div className="w-16 h-2 bg-zinc-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all ${
+                isCacheOverLimit() ? 'bg-red-500' :
+                isCacheNearLimit() ? 'bg-yellow-500' : 'bg-emerald-500'
+              }`}
+              style={{ width: `${Math.min(100, getCacheUsagePercentage())}%` }}
+            />
+          </div>
+          <span className={`text-xs ${
+            isCacheOverLimit() ? 'text-red-400' :
+            isCacheNearLimit() ? 'text-yellow-400' : 'text-zinc-400'
+          }`}>
+            {getCacheUsagePercentage().toFixed(0)}%
+          </span>
+        </div>
+      </Tooltip>
+
+      <Tooltip content="Clear AI sample cache" side="top">
+        <button
+          onClick={() => setClearCacheDialogOpen(true)}
+          disabled={cacheLoading || cacheInfo.size === 0}
+          className="text-xs px-2 py-1 bg-zinc-700 text-zinc-300 rounded hover:bg-red-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400"
+          aria-label="Clear cache"
+        >
+          Clear
+        </button>
+      </Tooltip>
+    </div>
+  );
+
   return (
-    <div className="bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold">Sample Library</h2>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-zinc-400">{library.length} samples</span>
-          {/* Cache Management */}
-          <div className="flex items-center gap-2">
-            <Tooltip
-              content={
-                <div className="text-center">
-                  <div className="font-medium">AI Sample Cache</div>
-                  <div className="text-xs text-zinc-400 mt-1">
-                    {formatBytes(cacheInfo.size)} / {formatBytes(cacheInfo.maxSize)}
-                  </div>
-                  <div className="text-xs text-zinc-400">
-                    {cacheInfo.files} cached files
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">
-                    {getCacheUsagePercentage().toFixed(1)}% used
-                  </div>
-                </div>
-              }
-              side="top"
-            >
-              <div className="flex items-center gap-1 text-xs">
-                <div className="w-16 h-2 bg-zinc-700 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full transition-all ${
-                      isCacheOverLimit() ? 'bg-red-500' :
-                      isCacheNearLimit() ? 'bg-yellow-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(100, getCacheUsagePercentage())}%` }}
-                  />
-                </div>
-                <span className={`text-xs ${
-                  isCacheOverLimit() ? 'text-red-400' :
-                  isCacheNearLimit() ? 'text-yellow-400' : 'text-zinc-400'
-                }`}>
-                  {getCacheUsagePercentage().toFixed(0)}%
-                </span>
-              </div>
-            </Tooltip>
-            
-            <Tooltip content="Clear AI sample cache" side="top">
-              <button
-                onClick={() => setClearCacheDialogOpen(true)}
-                disabled={cacheLoading || cacheInfo.size === 0}
-                className="text-xs px-2 py-1 bg-zinc-700 text-zinc-300 rounded hover:bg-red-600 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400"
-                aria-label="Clear cache"
-              >
-                Clear
-              </button>
-            </Tooltip>
+    <div className={`${embedded ? 'text-zinc-100' : 'bg-zinc-900 text-zinc-100 rounded-2xl p-5 shadow-xl'}`}>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">Sample Library</h2>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-400">{library.length} samples</span>
+            {cacheControls}
           </div>
         </div>
-      </div>
+      )}
+      {hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm text-zinc-400">{library.length} samples</span>
+          {cacheControls}
+        </div>
+      )}
       
       <div className="mb-4">
         <label className="block">
