@@ -70,6 +70,7 @@ jobs:
         cd backend
         python -m pip install --upgrade pip
         pip install -r requirements-minimal.txt
+        pip install slowapi "python-jose[cryptography]" "passlib[bcrypt]" bleach validators redis celery python-multipart
         pip install pytest pytest-cov flake8
 
     - name: Lint with flake8
