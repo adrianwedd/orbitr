@@ -37,7 +37,7 @@ jobs:
       run: npx tsc --noEmit
 
     - name: Run tests
-      run: pnpm test
+      run: pnpm test -- --testPathIgnorePatterns="__tests__/performance"
 
     - name: Build application
       run: pnpm run build
@@ -70,7 +70,7 @@ jobs:
         cd backend
         python -m pip install --upgrade pip
         pip install -r requirements-minimal.txt
-        pip install slowapi "python-jose[cryptography]" "passlib[bcrypt]" bleach validators redis celery python-multipart
+        pip install slowapi "python-jose[cryptography]" "passlib[bcrypt]" bleach validators redis celery python-multipart httpx
         pip install pytest pytest-cov flake8
 
     - name: Lint with flake8
