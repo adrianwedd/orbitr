@@ -89,7 +89,7 @@ jobs:
         path: |
           coverage/
           test-results/
-        retention-days: 7
+        retention-days: 1
 
   # Backend Security Testing Pipeline
   backend-security-tests:
@@ -115,7 +115,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         cd backend
-        pip install -r requirements.txt
+        pip install -r requirements-minimal.txt
         pip install pytest pytest-cov pytest-asyncio pytest-mock
 
     - name: Run security tests
@@ -143,7 +143,7 @@ jobs:
           backend/htmlcov/
           backend/coverage.xml
           backend/bandit-report.json
-        retention-days: 7
+        retention-days: 1
 
   # Performance Benchmarking
   performance-benchmarks:
@@ -182,7 +182,7 @@ jobs:
       with:
         name: performance-benchmarks
         path: performance-reports/
-        retention-days: 30
+        retention-days: 3
 
   # End-to-End Integration Tests
   e2e-integration:
@@ -247,7 +247,7 @@ jobs:
         path: |
           test-results/
           screenshots/
-        retention-days: 7
+        retention-days: 1
 
   # Memory Leak Detection
   memory-leak-detection:
@@ -286,7 +286,7 @@ jobs:
       with:
         name: memory-leak-results
         path: memory-reports/
-        retention-days: 14
+        retention-days: 1
 
   # Security Vulnerability Scanning
   security-scan:
@@ -328,7 +328,7 @@ jobs:
         path: |
           npm-audit-report.json
           snyk-report.json
-        retention-days: 30
+        retention-days: 3
 
   # Quality Gate Check
   quality-gate:
@@ -394,7 +394,7 @@ jobs:
       with:
         name: test-summary-report
         path: test-summary.md
-        retention-days: 90
+        retention-days: 3
 
   # Deployment Readiness Check
   deployment-readiness:
