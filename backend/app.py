@@ -136,7 +136,6 @@ async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizati
 # Resource management
 async def check_generation_capacity():
     """Check if we can accept new generation requests"""
-    global current_generations
     if current_generations >= max_concurrent_generations:
         raise HTTPException(
             status_code=429, 
