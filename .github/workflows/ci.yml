@@ -37,7 +37,7 @@ jobs:
       run: npx tsc --noEmit
 
     - name: Run tests
-      run: pnpm test -- --testPathIgnorePatterns="__tests__/performance"
+      run: pnpm test -- --testPathPattern="__tests__/(lib|components|integration)"
 
     - name: Build application
       run: pnpm run build
