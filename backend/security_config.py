@@ -306,9 +306,6 @@ class SecurityConfig:
 security_config = SecurityConfig()
 
 # Forwarded IP headers, in order of preference, set by reverse proxies / CDNs.
-_FORWARDED_IP_HEADERS = ("x-forwarded-for", "x-real-ip", "cf-connecting-ip", "x-cluster-client-ip")
-
-
 def get_real_client_ip(request) -> str:
     """Resolve the client IP used for rate-limiting, logging, and IP blocking.
 
@@ -320,13 +317,29 @@ def get_real_client_ip(request) -> str:
     configured => forwarded headers are ignored.
     """
     peer = request.client.host if request.client else None
-    if peer and peer in security_config.trusted_proxies:
-        for header in _FORWARDED_IP_HEADERS:
-            value = request.headers.get(header)
-            if value:
-                ip = value.split(",")[0].strip()
-                if ip:
-                    return ip
+    if not (peer and peer in security_config.trusted_proxies):
+        # Direct peer is not a trusted proxy: its address is authoritative and
+        # any forwarded headers are attacker-controlled, so ignore them.
+        return peer or "unknown"
+
+    # Single-value headers (CF-Connecting-IP, X-Real-IP) are set authoritatively
+    # by the trusted proxy and are not client-appendable chains, so prefer them.
+    for header in ("cf-connecting-ip", "x-real-ip"):
+        value = request.headers.get(header)
+        if value and value.strip():
+            return value.strip()
+
+    # X-Forwarded-For is a "client, proxy1, proxy2, ..." chain where the LEFTMOST
+    # entries are client-supplied and therefore spoofable. Walk right-to-left
+    # (from the hops our own trusted infrastructure appended) and return the
+    # first hop that is not itself a trusted proxy — the real upstream client.
+    # Taking the leftmost entry instead would let a client forge its rate-limit
+    # / block identity by prepending an arbitrary value.
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
+            if hop not in security_config.trusted_proxies:
+                return hop
     return peer or "unknown"
 
 

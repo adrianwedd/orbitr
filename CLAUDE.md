@@ -25,7 +25,7 @@ This repo uses **pnpm** (`packageManager: pnpm@10.30.0`, requires Node >=18). Us
 - `pnpm test` - Jest unit/integration tests (jsdom). Single file: `pnpm test __tests__/lib/audioStore.test.ts`; single test: `pnpm test -t "test name"`
 - `pnpm run test:watch` / `pnpm run test:coverage`
 - `pnpm run test:e2e` - Playwright E2E (`test:e2e:ui`, `:headed`, `:debug` variants)
-- `cd backend && pytest` - Backend tests. Single file: `pytest test_app.py`; single test: `pytest test_app.py::test_name`
+- `cd backend && pip install -r requirements-dev.txt && pytest` - Backend tests. `requirements-dev.txt` layers `pytest` + `httpx` (the FastAPI TestClient backend) onto `requirements-minimal.txt` — the test suite runs in fake-audio mode without the AI stack. Single file: `pytest test_app.py`; single test: `pytest test_app.py::test_name`
 
 ### Docker
 - `docker-compose up` - Run the full application stack in containers

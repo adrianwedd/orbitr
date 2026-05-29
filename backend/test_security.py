@@ -489,10 +489,33 @@ class TestForwardedIpTrust:
         assert get_real_client_ip(req) == "203.0.113.9"
 
     def test_forwarded_header_honored_from_trusted_proxy(self):
-        """A trusted proxy's forwarded IP is honoured (leftmost entry)."""
+        """A trusted proxy's forwarded IP is honoured (rightmost untrusted hop)."""
         security_config.trusted_proxies = {"10.0.0.1"}
         req = self._request("10.0.0.1", x_forwarded_for="1.2.3.4, 10.0.0.1")
         assert get_real_client_ip(req) == "1.2.3.4"
+
+    def test_spoofed_leftmost_xff_entry_is_defeated(self):
+        """A client behind a trusted proxy cannot forge its IP by prepending it.
+
+        The proxy appends the real client IP to the right of whatever the client
+        sent, so the rightmost untrusted hop is authoritative; the forged
+        leftmost entry must be ignored.
+        """
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", x_forwarded_for="9.9.9.9, 203.0.113.7")
+        assert get_real_client_ip(req) == "203.0.113.7"
+
+    def test_multi_hop_trusted_chain_returns_real_client(self):
+        """With multiple trusted hops, the first non-trusted hop from the right wins."""
+        security_config.trusted_proxies = {"10.0.0.1", "10.0.0.2"}
+        req = self._request("10.0.0.2", x_forwarded_for="203.0.113.7, 10.0.0.1, 10.0.0.2")
+        assert get_real_client_ip(req) == "203.0.113.7"
+
+    def test_single_value_proxy_header_preferred(self):
+        """CF-Connecting-IP / X-Real-IP from a trusted proxy take precedence over XFF."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", cf_connecting_ip="198.51.100.5", x_forwarded_for="9.9.9.9")
+        assert get_real_client_ip(req) == "198.51.100.5"
 
     def test_falls_back_to_peer_without_forwarded_header(self):
         security_config.trusted_proxies = {"10.0.0.1"}

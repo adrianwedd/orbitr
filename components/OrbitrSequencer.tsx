@@ -171,6 +171,9 @@ export default function OrbitrSequencer() {
   const bpmRef = useRef(bpm);
   const swingRef = useRef(swing);
   const reverseRef = useRef(reverse);
+  // Pending queue-prune timers, tracked so they can be cleared on unmount
+  // instead of firing store mutations after the component is gone (M3 cleanup).
+  const pruneTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   // Get current track's steps
   const currentTrackSteps = useMemo(() => {
@@ -402,6 +405,17 @@ export default function OrbitrSequencer() {
     setLoading(false);
   }, [audioEngine, addToLibrary, setLoading, setError]);
 
+  // Schedule a completed/failed queue item to be pruned after QUEUE_ITEM_TTL,
+  // tracking the timer so it can be cancelled on unmount (the timer is removed
+  // from the tracking set when it fires).
+  const schedulePrune = useCallback((genId: string) => {
+    const timer = setTimeout(() => {
+      pruneTimersRef.current.delete(timer);
+      removeFromQueue(genId);
+    }, QUEUE_ITEM_TTL);
+    pruneTimersRef.current.add(timer);
+  }, [removeFromQueue]);
+
   // Generation handler with environment-based API URL
   const handleGenerate = useCallback(async (prompt: string, stepIdx?: number, options: any = {}) => {
     generationDebugLog('Starting generation', { prompt, stepIdx, options });
@@ -465,7 +479,7 @@ export default function OrbitrSequencer() {
 
       // Prune the completed item shortly after so the queue can't grow
       // unbounded across a session (M3)
-      setTimeout(() => removeFromQueue(genId), QUEUE_ITEM_TTL);
+      schedulePrune(genId);
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Generation failed';
@@ -474,11 +488,11 @@ export default function OrbitrSequencer() {
       // Update THIS exact queue item by its unique id, not by prompt match,
       // so concurrent generations sharing a prompt don't clobber each other (M3)
       updateQueueItem(genId, { status: 'error' });
-      setTimeout(() => removeFromQueue(genId), QUEUE_ITEM_TTL);
+      schedulePrune(genId);
     } finally {
       setLoading(false);
     }
-  }, [audioEngine, addToQueue, addToLibrary, assignToStepMulti, selectedTrack, updateQueueItem, removeFromQueue, setLoading, setError]);
+  }, [audioEngine, addToQueue, addToLibrary, assignToStepMulti, selectedTrack, updateQueueItem, schedulePrune, setLoading, setError]);
 
   // Keyboard shortcuts handlers
   const handleGenerateShortcut = useCallback(() => {
@@ -521,12 +535,19 @@ export default function OrbitrSequencer() {
 
   // Cleanup on unmount only
   useEffect(() => {
+    // Capture the (stable, lifetime-long) prune-timer set so the cleanup below
+    // clears the same instance it accumulated into.
+    const pruneTimers = pruneTimersRef.current;
     return () => {
       // Access current values directly to avoid dependency issues
       if (audioEngine.schedulerTimerRef.current) {
         clearTimeout(audioEngine.schedulerTimerRef.current);
         audioEngine.schedulerTimerRef.current = null;
       }
+      // Cancel any pending queue-prune timers so they don't mutate the store
+      // after unmount (M3 cleanup).
+      pruneTimers.forEach(clearTimeout);
+      pruneTimers.clear();
       // cleanup() cancels the rAF loop and hard-stops every live source (H5/H6)
       setIsPlaying(false);
       audioEngine.currentStepRef.current = 0;

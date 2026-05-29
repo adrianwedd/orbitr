@@ -119,6 +119,16 @@ def _try_acquire_generation_slot() -> bool:
     generation_semaphore._value -= 1
     return True
 
+
+def _generations_in_use() -> int:
+    """Number of generation slots currently reserved.
+
+    Single source of truth for the slot-count read (used by /health), kept next
+    to _try_acquire_generation_slot so the reliance on the semaphore's internal
+    counter lives in exactly one place.
+    """
+    return max(0, max_concurrent_generations - generation_semaphore._value)
+
 # Lazy load AudioCraft to speed up startup
 musicgen_model = None
 melody_model = None
@@ -464,7 +474,7 @@ async def health_check(request: Request):
             "request_size_limited": True
         },
         "resources": {
-            "current_generations": max(0, max_concurrent_generations - generation_semaphore._value),
+            "current_generations": _generations_in_use(),
             "max_concurrent": max_concurrent_generations,
             "models_loaded": musicgen_model is not None
         }

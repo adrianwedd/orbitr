@@ -76,10 +76,14 @@ export class AudioAnalysisEngine {
       );
     }
 
-    // Initialize data arrays
+    // Initialize data arrays. Frequency-domain buffers are sized to
+    // frequencyBinCount (fftSize/2); the time-domain (waveform) buffer must be
+    // the full fftSize, otherwise getByteTimeDomainData fills only the first
+    // half of the window and RMS/peak loudness are computed over half the
+    // samples (consistently under-reading transients).
     const bufferLength = this.analyserNode.frequencyBinCount;
     this.dataArray = new Uint8Array(new ArrayBuffer(bufferLength));
-    this.timeDomainData = new Uint8Array(new ArrayBuffer(bufferLength));
+    this.timeDomainData = new Uint8Array(new ArrayBuffer(this.analyserNode.fftSize));
     this.frequencyData = new Float32Array(new ArrayBuffer(bufferLength * Float32Array.BYTES_PER_ELEMENT));
     
     // Calculate frequency band ranges
