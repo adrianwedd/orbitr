@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false  # one suite failing shouldn't cancel the others' signal
       matrix:
         test-suite: [unit, performance, memory, integration]
 
@@ -59,16 +60,16 @@ jobs:
       run: |
         case "${{ matrix.test-suite }}" in
           "unit")
-            pnpm run test -- --testPathPattern="__tests__/(lib|components)" --coverage --coverageReporters=lcov
+            pnpm run test --testPathPattern="__tests__/(lib|components)" --coverage --coverageReporters=lcov
             ;;
           "performance")
-            pnpm run test -- --testPathPattern="__tests__/performance" --runInBand --detectOpenHandles
+            pnpm run test --testPathPattern="__tests__/performance" --runInBand --detectOpenHandles
             ;;
           "memory")
-            pnpm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles
+            pnpm run test --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles
             ;;
           "integration")
-            pnpm run test -- --testPathPattern="__tests__/integration" --runInBand --detectOpenHandles
+            pnpm run test --testPathPattern="__tests__/integration" --runInBand --detectOpenHandles
             ;;
         esac
 
@@ -116,7 +117,8 @@ jobs:
       run: |
         cd backend
         pip install -r requirements-minimal.txt
-        pip install pytest pytest-cov pytest-asyncio pytest-mock
+        # httpx backs FastAPI's TestClient; pytest-cov/asyncio/mock for the suite.
+        pip install pytest pytest-cov pytest-asyncio pytest-mock httpx
 
     - name: Run security tests
       run: |
@@ -168,14 +170,14 @@ jobs:
 
     - name: Run performance benchmarks
       run: |
-        pnpm run test -- --testPathPattern="performance" --runInBand --verbose --detectOpenHandles
+        pnpm run test --testPathPattern="performance" --runInBand --verbose --detectOpenHandles
       env:
         NODE_OPTIONS: '--max-old-space-size=8192'
 
     - name: Generate performance report
       run: |
         mkdir -p performance-reports
-        pnpm run test -- --testPathPattern="load-testing" --runInBand --verbose --json --outputFile=performance-reports/performance-results.json || true
+        pnpm run test --testPathPattern="load-testing" --runInBand --verbose --json --outputFile=performance-reports/performance-results.json || true
 
     - name: Upload performance results
       uses: actions/upload-artifact@v4
@@ -237,7 +239,7 @@ jobs:
         API_KEY: test-api-key-secure
 
     - name: Run integration tests
-      run: pnpm run test -- --testPathPattern="end-to-end" --runInBand --detectOpenHandles
+      run: pnpm run test --testPathPattern="end-to-end" --runInBand --detectOpenHandles
 
     - name: Upload integration test results
       if: always()
@@ -270,14 +272,27 @@ jobs:
         node-version: ${{ env.NODE_VERSION }}
         cache: 'pnpm'
 
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
+
+    - name: Install backend dependencies
+      # Playwright's webServer launches the backend (fake-audio mode); install
+      # its deps into the ambient Python so `python app.py` can start.
+      run: pip install -r backend/requirements-minimal.txt
 
     - name: Install Playwright browsers
       run: pnpm exec playwright install --with-deps
 
     - name: Run Playwright E2E tests
       run: pnpm run test:e2e
+      env:
+        ENVIRONMENT: test
+        API_KEY: test-api-key-secure
 
     - name: Upload Playwright report
       if: always()
@@ -312,9 +327,11 @@ jobs:
 
     - name: Run memory leak tests
       run: |
-        pnpm run test -- --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles --forceExit
+        pnpm run test --testPathPattern="memory-leak" --runInBand --logHeapUsage --detectOpenHandles --forceExit
       env:
-        NODE_OPTIONS: '--max-old-space-size=4096 --expose-gc'
+        # --expose-gc is rejected in NODE_OPTIONS on Node 18; the memory-leak
+        # test guards `if (global.gc)` and runs fine without the forced-gc path.
+        NODE_OPTIONS: '--max-old-space-size=4096'
 
     - name: Generate memory report
       run: |

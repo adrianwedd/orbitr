@@ -77,7 +77,10 @@ export default defineConfig({
       timeout: 120 * 1000,
     },
     {
-      command: 'cd backend && source venv/bin/activate && python app.py',
+      // Activate a local venv if one exists (dev machines); otherwise fall back
+      // to the ambient Python (CI installs backend deps globally). `.` works in
+      // sh, unlike `source`, which the CI webServer shell doesn't provide.
+      command: 'cd backend && ([ -d venv ] && . venv/bin/activate; python app.py)',
       url: 'http://localhost:8000/health',
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000,

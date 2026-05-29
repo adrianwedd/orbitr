@@ -189,9 +189,12 @@ async def _verify_api_key(
         AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "API key expired")
         raise HTTPException(status_code=401, detail="API key expired")
 
-    # Development mode bypass (only for non-sensitive endpoints)
+    # Development/test bypass (only for non-sensitive endpoints). The TEST
+    # environment is a non-production convenience mode like DEVELOPMENT, so
+    # generation endpoints are reachable without a token; sensitive endpoints
+    # use verify_api_key_strict (allow_dev_bypass=False) and are never bypassed.
     if (allow_dev_bypass and
-            security_config.environment == SecurityLevel.DEVELOPMENT and
+            security_config.environment in (SecurityLevel.DEVELOPMENT, SecurityLevel.TEST) and
             not security_config.auth_config.require_auth_in_dev and
             not credentials):
         return True
@@ -439,6 +442,63 @@ def _write_cache_atomic(cache_file: Path, data: bytes) -> None:
             pass
         raise
 
+
+# Cache size cap. The file-based sample cache would otherwise grow without bound
+# across a long-running server. CACHE_MAX_SIZE_MB sets the ceiling; once exceeded
+# we evict least-recently-used entries (mtime as the recency key, bumped on cache
+# hits via os.utime) down to a low-water mark to avoid thrashing on every write.
+CACHE_MAX_SIZE_MB = int(os.getenv("CACHE_MAX_SIZE_MB", "1000"))
+_CACHE_LOW_WATER = 0.9  # evict down to 90% of the cap
+
+
+def _enforce_cache_limit(max_mb: Optional[int] = None) -> Dict[str, Any]:
+    """Evict least-recently-used cache files until under the configured size cap.
+
+    Returns telemetry: ``{"evicted", "freed_mb", "size_mb"}``. A no-op (zero
+    eviction) when the cache is already under the cap or the cap is disabled
+    (``CACHE_MAX_SIZE_MB <= 0``). Best-effort and concurrency-safe: a file
+    unlinked by a racing generation is skipped, not fatal.
+    """
+    cap_mb = CACHE_MAX_SIZE_MB if max_mb is None else max_mb
+    if cap_mb <= 0:
+        return {"evicted": 0, "freed_mb": 0.0, "size_mb": 0.0}
+    cap_bytes = cap_mb * 1024 * 1024
+    try:
+        entries = [(f, f.stat()) for f in CACHE_DIR.glob("*.wav")]
+    except OSError:
+        return {"evicted": 0, "freed_mb": 0.0, "size_mb": 0.0}
+
+    total = sum(st.st_size for _, st in entries)
+    if total <= cap_bytes:
+        return {"evicted": 0, "freed_mb": 0.0, "size_mb": round(total / (1024 * 1024), 2)}
+
+    # Oldest (lowest mtime) first — least recently used.
+    entries.sort(key=lambda e: e[1].st_mtime)
+    target = int(cap_bytes * _CACHE_LOW_WATER)
+    evicted = 0
+    freed = 0
+    for f, st in entries:
+        if total <= target:
+            break
+        try:
+            f.unlink()
+        except OSError:
+            continue  # already removed by a concurrent eviction/clear
+        total -= st.st_size
+        freed += st.st_size
+        evicted += 1
+
+    if evicted:
+        security_logger.info(
+            "cache_eviction: evicted %d LRU file(s), freed %.1f MB (now %.1f MB / %d MB cap)",
+            evicted, freed / (1024 * 1024), total / (1024 * 1024), cap_mb,
+        )
+    return {
+        "evicted": evicted,
+        "freed_mb": round(freed / (1024 * 1024), 2),
+        "size_mb": round(total / (1024 * 1024), 2),
+    }
+
 # Add security monitoring endpoint
 @app.get("/security/metrics")
 @limiter.limit(f"{HEALTH_RATE_LIMIT//10}/minute")
@@ -506,6 +566,11 @@ async def generate_sample(
         if cache_file.exists():
             with open(cache_file, 'rb') as f:
                 audio_base64 = base64.b64encode(f.read()).decode('utf-8')
+            # Mark as recently used so LRU eviction keeps hot samples.
+            try:
+                os.utime(cache_file, None)
+            except OSError:
+                pass
             return GenerateResponse(
                 audio=audio_base64,
                 name=f"cached-{generate_request.prompt[:20]}",
@@ -581,6 +646,8 @@ async def generate_sample(
         # os.replace() (atomic on POSIX) so a crash/timeout mid-write can never
         # leave a truncated file that gets served as a cache hit forever.
         _write_cache_atomic(cache_file, base64.b64decode(audio_base64))
+        # Keep the cache bounded: evict LRU entries if we've crossed the cap.
+        _enforce_cache_limit()
 
         # Generate name from prompt
         name = f"{generate_request.prompt[:30]}-{generate_request.seed}"
@@ -670,9 +737,9 @@ async def cache_size(request: Request):
         
         files = list(CACHE_DIR.glob("*.wav"))
         total_size = sum(f.stat().st_size for f in files) / (1024 * 1024)
-        
-        # Get cache health info
-        max_size_mb = int(os.getenv("CACHE_MAX_SIZE_MB", "1000"))
+
+        # Get cache health info (cap enforced by _enforce_cache_limit on write)
+        max_size_mb = CACHE_MAX_SIZE_MB
         health_status = "healthy" if total_size < max_size_mb * 0.8 else "warning" if total_size < max_size_mb else "critical"
         
         return {

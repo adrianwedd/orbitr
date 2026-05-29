@@ -1,4 +1,5 @@
 import pytest
+import os
 import json
 import base64
 from fastapi.testclient import TestClient
@@ -68,17 +69,66 @@ class TestAPIEndpoints:
         # Test cache size endpoint
         response = client.get("/cache/size")
         assert response.status_code == 200
-        
+
         data = response.json()
         assert "files" in data
         assert "size_mb" in data
         assert isinstance(data["files"], int)
         assert isinstance(data["size_mb"], (int, float))
-        
+        assert "max_size_mb" in data  # cap reported for monitoring
+
         # Test cache clear endpoint (DELETE, not GET) — now requires auth
         response = client.delete("/cache/clear", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert "message" in response.json()
+
+
+class TestCacheEviction:
+    """LRU cache size-limit enforcement (#6 cache cap, #15 cleanup mechanism)."""
+
+    @staticmethod
+    def _seed(cache_dir, specs):
+        """Create <name>.wav files. specs: list of (name, size_bytes, mtime)."""
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        paths = {}
+        for name, size, mtime in specs:
+            p = cache_dir / f"{name}.wav"
+            p.write_bytes(b"\0" * size)
+            os.utime(p, (mtime, mtime))
+            paths[name] = p
+        return paths
+
+    def test_evicts_least_recently_used_until_under_cap(self, tmp_path, monkeypatch):
+        import app as _app
+        monkeypatch.setattr(_app, "CACHE_DIR", tmp_path)
+        mb = 1024 * 1024
+        # Three 1 MB files, ascending mtime → "old" is least recently used.
+        paths = self._seed(tmp_path, [("old", mb, 1000), ("mid", mb, 2000), ("new", mb, 3000)])
+
+        result = _app._enforce_cache_limit(max_mb=2)  # cap 2 MB, low-water 1.8 MB
+
+        # Evicts oldest first until under the low-water mark: old + mid go, new stays.
+        assert result["evicted"] == 2
+        assert not paths["old"].exists()
+        assert not paths["mid"].exists()
+        assert paths["new"].exists()
+        assert result["size_mb"] <= 2
+
+    def test_noop_when_under_cap(self, tmp_path, monkeypatch):
+        import app as _app
+        monkeypatch.setattr(_app, "CACHE_DIR", tmp_path)
+        paths = self._seed(tmp_path, [("a", 1024 * 1024, 1000)])
+        result = _app._enforce_cache_limit(max_mb=10)
+        assert result["evicted"] == 0
+        assert paths["a"].exists()
+
+    def test_disabled_when_cap_non_positive(self, tmp_path, monkeypatch):
+        import app as _app
+        monkeypatch.setattr(_app, "CACHE_DIR", tmp_path)
+        paths = self._seed(tmp_path, [("a", 5 * 1024 * 1024, 1000)])
+        result = _app._enforce_cache_limit(max_mb=0)
+        assert result["evicted"] == 0
+        assert paths["a"].exists()
 
 class TestUtilityFunctions:
     
