@@ -1,0 +1,16 @@
+# Backend test/dev dependencies.
+#
+# Layered on top of the minimal runtime deps so the test suite (pytest +
+# FastAPI TestClient) runs without the heavy AI stack:
+#
+#     pip install -r requirements-dev.txt
+#     pytest
+#
+# httpx is required by fastapi.testclient.TestClient (Starlette's test client
+# is built on it). pytest is the test runner. Nothing in the test import graph
+# pulls in cryptography/validators/python-jose, so they are intentionally not
+# listed here — add them only if a test starts importing api_key_management.
+-r requirements-minimal.txt
+
+pytest==9.0.3
+httpx==0.28.1

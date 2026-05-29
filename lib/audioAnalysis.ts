@@ -30,8 +30,11 @@ export interface AudioAnalysisData {
 export class AudioAnalysisEngine {
   private analyserNode: AnalyserNode | null = null;
   private audioContext: AudioContext | null = null;
-  private dataArray: Uint8Array | null = null;
-  private frequencyData: Float32Array | null = null;
+  // Backed by a concrete ArrayBuffer (not SharedArrayBuffer) so the typed
+  // arrays satisfy the AnalyserNode get*Data() parameter types without casts.
+  private dataArray: Uint8Array<ArrayBuffer> | null = null;
+  private timeDomainData: Uint8Array<ArrayBuffer> | null = null;
+  private frequencyData: Float32Array<ArrayBuffer> | null = null;
   
   // Smoothing filters
   private rmsHistory: number[] = [];
@@ -58,19 +61,30 @@ export class AudioAnalysisEngine {
     this.analyserNode.fftSize = 2048;
     this.analyserNode.smoothingTimeConstant = 0.3;
     
-    // Connect to source or destination
+    // Wire the source (typically the app's master gain node) INTO the analyser
+    // so the analyser actually receives audio to measure. The analyser is a
+    // pass-through tap: we deliberately do NOT connect it to destination — the
+    // source still reaches the speakers via its own existing routing, and an
+    // input-less analyser (the previous behaviour when no source was passed)
+    // only ever reads zeros, so the visuals never react.
     if (sourceNode) {
       sourceNode.connect(this.analyserNode);
     } else {
-      // Connect to master output for global analysis
-      const destination = audioContext.destination;
-      this.analyserNode.connect(destination);
+      console.warn(
+        'AudioAnalysisEngine.initialize called without a source node; ' +
+        'the analyser will have no input and report silence. Pass the master gain node.'
+      );
     }
-    
-    // Initialize data arrays
+
+    // Initialize data arrays. Frequency-domain buffers are sized to
+    // frequencyBinCount (fftSize/2); the time-domain (waveform) buffer must be
+    // the full fftSize, otherwise getByteTimeDomainData fills only the first
+    // half of the window and RMS/peak loudness are computed over half the
+    // samples (consistently under-reading transients).
     const bufferLength = this.analyserNode.frequencyBinCount;
     this.dataArray = new Uint8Array(new ArrayBuffer(bufferLength));
-    this.frequencyData = new Float32Array(new ArrayBuffer(bufferLength * 4));
+    this.timeDomainData = new Uint8Array(new ArrayBuffer(this.analyserNode.fftSize));
+    this.frequencyData = new Float32Array(new ArrayBuffer(bufferLength * Float32Array.BYTES_PER_ELEMENT));
     
     // Calculate frequency band ranges
     this.calculateFrequencyRanges();
@@ -124,15 +138,21 @@ export class AudioAnalysisEngine {
   }
 
   private analyze = (): void => {
-    if (!this.isActive || !this.analyserNode || !this.dataArray || !this.frequencyData) {
+    if (
+      !this.isActive ||
+      !this.analyserNode ||
+      !this.dataArray ||
+      !this.timeDomainData ||
+      !this.frequencyData
+    ) {
       return;
     }
 
-    // Get frequency and time domain data
-    // @ts-ignore - TypeScript issue with ArrayBuffer vs ArrayBufferLike
+    // Frequency-domain data drives the per-band averages (bass/mid/treble/...)
     this.analyserNode.getByteFrequencyData(this.dataArray);
-    // @ts-ignore - TypeScript issue with ArrayBuffer vs ArrayBufferLike
     this.analyserNode.getFloatFrequencyData(this.frequencyData);
+    // Time-domain (waveform) data is the correct source for loudness (RMS/peak)
+    this.analyserNode.getByteTimeDomainData(this.timeDomainData);
 
     // Calculate analysis data
     const analysisData = this.calculateAnalysisData();
@@ -145,21 +165,23 @@ export class AudioAnalysisEngine {
   };
 
   private calculateAnalysisData(): AudioAnalysisData {
-    if (!this.dataArray || !this.frequencyData) {
+    if (!this.dataArray || !this.timeDomainData || !this.frequencyData) {
       return this.getEmptyAnalysisData();
     }
 
-    // Calculate RMS and peak from time domain
+    // Calculate RMS and peak from the time-domain (waveform) samples. Byte
+    // time-domain data is centred on 128 (silence), so we normalise to -1..1.
+    // Using frequency bytes here (the previous bug) does not represent loudness.
     let sum = 0;
     let peak = 0;
-    
-    for (let i = 0; i < this.dataArray.length; i++) {
-      const value = (this.dataArray[i] - 128) / 128; // Normalize to -1 to 1
+
+    for (let i = 0; i < this.timeDomainData.length; i++) {
+      const value = (this.timeDomainData[i] - 128) / 128; // Normalize to -1 to 1
       sum += value * value;
       peak = Math.max(peak, Math.abs(value));
     }
-    
-    const rms = Math.sqrt(sum / this.dataArray.length);
+
+    const rms = Math.sqrt(sum / this.timeDomainData.length);
 
     // Calculate frequency bands
     const bass = this.getFrequencyBandAverage(this.bassRange);
@@ -289,6 +311,7 @@ export class AudioAnalysisEngine {
     
     this.audioContext = null;
     this.dataArray = null;
+    this.timeDomainData = null;
     this.frequencyData = null;
     this.callbacks = [];
     this.rmsHistory = [];

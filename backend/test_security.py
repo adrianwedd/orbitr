@@ -24,8 +24,9 @@ os.environ["GENERATION_TIMEOUT"] = "10"
 os.environ["MAX_REQUEST_SIZE"] = "1024"
 os.environ["ENVIRONMENT"] = "test"
 
+from types import SimpleNamespace
 from app import app, sanitize_text, validate_prompt_content
-from security_config import security_config
+from security_config import security_config, get_real_client_ip
 from security_middleware import security_metrics
 
 # Fixtures for test isolation
@@ -38,11 +39,22 @@ def reset_rate_limits():
     require_auth_in_dev=False.  Patch the live singleton here instead.
     conftest.py handles rate-limiter storage reset.
     """
+    # Snapshot the singleton's mutable auth state so we can restore it on teardown.
+    # Without this, these mutations leak into other test modules (e.g. test_app.py)
+    # if they run afterwards, breaking their no-auth dev-mode expectations.
+    _orig_require_auth = security_config.auth_config.require_auth_in_dev
+    _orig_api_key = security_config.api_key
+
     security_config.auth_config.require_auth_in_dev = True
     security_config.api_key = "test-api-key-secure"
     security_metrics.blocked_ips.clear()
     security_metrics.failed_auth_attempts.clear()
     yield
+
+    security_config.auth_config.require_auth_in_dev = _orig_require_auth
+    security_config.api_key = _orig_api_key
+    security_metrics.blocked_ips.clear()
+    security_metrics.failed_auth_attempts.clear()
 
 @pytest.fixture
 def isolated_client():
@@ -256,7 +268,9 @@ class TestResourceLimits:
         """Test concurrent generation limits"""
         headers = {"Authorization": "Bearer test-api-key-secure"}
         
-        with patch('app.current_generations', 2), patch('app.max_concurrent_generations', 2):
+        # Simulate the concurrency semaphore being fully exhausted so the next
+        # request is rejected with 429 (the semaphore replaced the old counter).
+        with patch('app._try_acquire_generation_slot', return_value=False):
             response = client.post("/generate", json={"prompt": "test"}, headers=headers)
             assert response.status_code == 429
             # Check the response content to distinguish from rate limiting
@@ -439,6 +453,75 @@ class TestHealthAndMonitoring:
         assert "status" in data
         assert "version" in data
         assert "environment" in data
+
+
+class TestForwardedIpTrust:
+    """Forwarded IP headers must only be trusted from configured proxies.
+
+    Otherwise a client can spoof X-Forwarded-For to rotate its apparent IP and
+    bypass per-IP rate limiting / IP blocking, or forge a victim's IP to get it
+    blocked.
+    """
+
+    @staticmethod
+    def _request(peer, **headers):
+        return SimpleNamespace(
+            client=SimpleNamespace(host=peer) if peer else None,
+            headers={k.replace("_", "-"): v for k, v in headers.items()},
+        )
+
+    @pytest.fixture(autouse=True)
+    def _restore_trusted_proxies(self):
+        original = set(security_config.trusted_proxies)
+        yield
+        security_config.trusted_proxies = original
+
+    def test_forwarded_header_ignored_when_no_trusted_proxy(self):
+        """Spoofed X-Forwarded-For is ignored; the real peer IP is used."""
+        security_config.trusted_proxies = set()
+        req = self._request("203.0.113.9", x_forwarded_for="1.2.3.4")
+        assert get_real_client_ip(req) == "203.0.113.9"
+
+    def test_forwarded_header_ignored_when_peer_untrusted(self):
+        """A peer not in TRUSTED_PROXIES cannot inject a forwarded IP."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("203.0.113.9", x_forwarded_for="1.2.3.4")
+        assert get_real_client_ip(req) == "203.0.113.9"
+
+    def test_forwarded_header_honored_from_trusted_proxy(self):
+        """A trusted proxy's forwarded IP is honoured (rightmost untrusted hop)."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", x_forwarded_for="1.2.3.4, 10.0.0.1")
+        assert get_real_client_ip(req) == "1.2.3.4"
+
+    def test_spoofed_leftmost_xff_entry_is_defeated(self):
+        """A client behind a trusted proxy cannot forge its IP by prepending it.
+
+        The proxy appends the real client IP to the right of whatever the client
+        sent, so the rightmost untrusted hop is authoritative; the forged
+        leftmost entry must be ignored.
+        """
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", x_forwarded_for="9.9.9.9, 203.0.113.7")
+        assert get_real_client_ip(req) == "203.0.113.7"
+
+    def test_multi_hop_trusted_chain_returns_real_client(self):
+        """With multiple trusted hops, the first non-trusted hop from the right wins."""
+        security_config.trusted_proxies = {"10.0.0.1", "10.0.0.2"}
+        req = self._request("10.0.0.2", x_forwarded_for="203.0.113.7, 10.0.0.1, 10.0.0.2")
+        assert get_real_client_ip(req) == "203.0.113.7"
+
+    def test_single_value_proxy_header_preferred(self):
+        """CF-Connecting-IP / X-Real-IP from a trusted proxy take precedence over XFF."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", cf_connecting_ip="198.51.100.5", x_forwarded_for="9.9.9.9")
+        assert get_real_client_ip(req) == "198.51.100.5"
+
+    def test_falls_back_to_peer_without_forwarded_header(self):
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1")
+        assert get_real_client_ip(req) == "10.0.0.1"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

@@ -141,7 +141,7 @@ export const TrackControls: React.FC<TrackControlsProps> = ({
                       MUTE
                     </button>
                   </Tooltip>
-                  <Tooltip content={track.solo ? "Disable solo" : "Solo track (mutes all others)"} side="top">
+                  <Tooltip content={track.solo ? "Disable solo" : "Solo track (only soloed tracks play)"} side="top">
                     <button
                       onClick={() => onSoloToggle(track.id)}
                       className={`

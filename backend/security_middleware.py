@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from fastapi import Request, Response, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from security_config import security_config, generate_request_id, hash_sensitive_data, is_suspicious_request, get_client_fingerprint
+from security_config import security_config, generate_request_id, hash_sensitive_data, is_suspicious_request, get_client_fingerprint, get_real_client_ip
 
 # Configure security logger
 security_logger = logging.getLogger("security")
@@ -199,27 +199,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             return response
     
     def _get_client_ip(self, request: Request) -> str:
-        """Get real client IP address"""
-        # Check for forwarded headers in order of preference
-        forwarded_headers = [
-            "x-forwarded-for",
-            "x-real-ip",
-            "cf-connecting-ip",  # Cloudflare
-            "x-cluster-client-ip"
-        ]
-        
-        for header in forwarded_headers:
-            if header in request.headers:
-                # Take the first IP in case of multiple
-                ip = request.headers[header].split(",")[0].strip()
-                if ip:
-                    return ip
-        
-        # Fallback to direct connection
-        if hasattr(request.client, 'host'):
-            return request.client.host
-        
-        return "unknown"
+        """Get real client IP address.
+
+        Delegates to the shared, trusted-proxy-gated resolver so blocking/logging
+        key on the same IP as the rate limiter. Forwarded headers are only honoured
+        from configured trusted proxies (otherwise they are spoofable — a client
+        could evade an IP block or forge a victim's IP to get them blocked).
+        """
+        return get_real_client_ip(request)
     
     async def _perform_security_checks(
         self, request: Request, client_ip: str, user_agent: str, fingerprint: str

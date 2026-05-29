@@ -193,10 +193,13 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
       )
     })),
 
+  // Solo only the targeted track; leave every other track's solo untouched so
+  // multiple tracks can be soloed simultaneously (M1). The scheduler's
+  // hasSoloTracks gating already supports any number of soloed tracks.
   setTrackSolo: (trackId, solo) =>
     set((state) => ({
       tracks: state.tracks.map(track =>
-        track.id === trackId ? { ...track, solo } : { ...track, solo: false }
+        track.id === trackId ? { ...track, solo } : track
       )
     })),
 

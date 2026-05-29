@@ -101,6 +101,8 @@ class SecurityConfig:
         # CORS configuration
         self.cors_origins = self._parse_cors_origins()
         self.trusted_hosts = self._parse_trusted_hosts()
+        # Reverse proxies whose forwarded IP headers we are willing to trust.
+        self.trusted_proxies = self._parse_trusted_proxies()
         
         # Logging configuration
         self.enable_security_logging = os.getenv("ENABLE_SECURITY_LOGGING", "true").lower() == "true"
@@ -160,15 +162,59 @@ class SecurityConfig:
         
         return origins
     
+    @staticmethod
+    def _normalize_host(value: str) -> str:
+        """Strip scheme, port, and path from a host/origin string.
+
+        TrustedHostMiddleware matches against the bare hostname only, so a value
+        like 'http://localhost:3000' or 'localhost:3000' must be reduced to
+        'localhost' to match.
+        """
+        host = value.strip()
+        # Strip scheme
+        if "://" in host:
+            host = host.split("://", 1)[1]
+        # Strip any path
+        host = host.split("/", 1)[0]
+        # Strip port (handle IPv6 in brackets separately)
+        if host.startswith("["):  # IPv6 literal, e.g. [::1]:3000
+            host = host.split("]", 1)[0] + "]"
+        elif ":" in host:
+            host = host.rsplit(":", 1)[0]
+        return host
+
     def _parse_trusted_hosts(self) -> List[str]:
-        """Parse trusted hosts from CORS origins"""
-        hosts = []
-        for origin in self.cors_origins:
-            host = origin.replace("https://", "").replace("http://", "")
+        """Parse trusted hosts.
+
+        Prefer the explicit TRUSTED_HOSTS env var (comma-separated). Each entry
+        has its scheme AND port stripped so TrustedHostMiddleware can match the
+        bare hostname. Falls back to deriving hosts from the CORS origins only
+        when TRUSTED_HOSTS is unset.
+        """
+        hosts: List[str] = []
+        trusted_str = os.getenv("TRUSTED_HOSTS")
+        if trusted_str:
+            sources = [h for h in trusted_str.split(",") if h.strip()]
+        else:
+            sources = self.cors_origins
+
+        for source in sources:
+            host = self._normalize_host(source)
             if host and host not in hosts:
                 hosts.append(host)
         return hosts
-    
+
+    def _parse_trusted_proxies(self) -> set:
+        """Parse the set of reverse-proxy IPs we trust to set X-Forwarded-* headers.
+
+        Forwarded headers are trivially spoofable by any client, so they are only
+        honoured when the request's direct peer is one of these addresses. Secure by
+        default: with TRUSTED_PROXIES unset, forwarded headers are ignored entirely
+        and the direct peer IP is used for rate-limiting / blocking.
+        """
+        raw = os.getenv("TRUSTED_PROXIES", "")
+        return {p.strip() for p in raw.split(",") if p.strip()}
+
     def _validate_config(self):
         """Validate security configuration"""
         errors = []
@@ -249,8 +295,53 @@ class SecurityConfig:
             "cleanup_interval": int(os.getenv("CACHE_CLEANUP_INTERVAL", "3600")),  # 1 hour
         }
 
-# Global security configuration instance
+# Global security configuration instance.
+#
+# NOTE: This singleton is intentionally constructed at import time because many
+# modules do `from security_config import security_config`. Construction only
+# reads environment variables (no threads, no network, no file I/O), so importing
+# this module is side-effect free apart from reading env. Tests that need
+# different settings must set the relevant env vars BEFORE importing app/this
+# module (conftest.py does this), or patch the live singleton's attributes.
 security_config = SecurityConfig()
+
+# Forwarded IP headers, in order of preference, set by reverse proxies / CDNs.
+def get_real_client_ip(request) -> str:
+    """Resolve the client IP used for rate-limiting, logging, and IP blocking.
+
+    Forwarded headers (X-Forwarded-For, etc.) are attacker-controlled and would let
+    a client rotate its apparent IP to bypass rate limits / IP blocks, or forge a
+    victim's IP to get them blocked. They are therefore honoured ONLY when the
+    request's direct peer is a configured trusted proxy (TRUSTED_PROXIES). Otherwise
+    the direct peer address is authoritative. Secure by default: no trusted proxies
+    configured => forwarded headers are ignored.
+    """
+    peer = request.client.host if request.client else None
+    if not (peer and peer in security_config.trusted_proxies):
+        # Direct peer is not a trusted proxy: its address is authoritative and
+        # any forwarded headers are attacker-controlled, so ignore them.
+        return peer or "unknown"
+
+    # Single-value headers (CF-Connecting-IP, X-Real-IP) are set authoritatively
+    # by the trusted proxy and are not client-appendable chains, so prefer them.
+    for header in ("cf-connecting-ip", "x-real-ip"):
+        value = request.headers.get(header)
+        if value and value.strip():
+            return value.strip()
+
+    # X-Forwarded-For is a "client, proxy1, proxy2, ..." chain where the LEFTMOST
+    # entries are client-supplied and therefore spoofable. Walk right-to-left
+    # (from the hops our own trusted infrastructure appended) and return the
+    # first hop that is not itself a trusted proxy — the real upstream client.
+    # Taking the leftmost entry instead would let a client forge its rate-limit
+    # / block identity by prepending an arbitrary value.
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        for hop in reversed([h.strip() for h in xff.split(",") if h.strip()]):
+            if hop not in security_config.trusted_proxies:
+                return hop
+    return peer or "unknown"
+
 
 # Security utilities
 def generate_request_id() -> str:

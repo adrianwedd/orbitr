@@ -28,7 +28,9 @@ limiter = _app.limiter
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
-    """Reset in-memory rate limiter storage and generation counter before each test."""
-    _app.current_generations = 0
+    """Reset in-memory rate limiter storage and the generation semaphore before each test."""
+    # Recreate the concurrency semaphore so any slots leaked by a previous test
+    # (or deliberately consumed) are released and the configured max is restored.
+    _app.reset_generation_semaphore(_app.MAX_CONCURRENT_GENERATIONS)
     limiter._storage.reset()
     yield
