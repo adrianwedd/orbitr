@@ -1,13 +1,12 @@
 name: Comprehensive Testing Pipeline
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+  # Heavy suites — NOT run on every push/PR. Trigger on-demand from the Actions
+  # tab (Run workflow) or via the monthly schedule. Run them locally otherwise.
+  workflow_dispatch:
   schedule:
-    # Run comprehensive tests daily at 2 AM UTC
-    - cron: '0 2 * * *'
+    # Monthly: 1st of the month at 02:00 UTC
+    - cron: '0 2 1 * *'
 
 env:
   NODE_VERSION: '18'
@@ -286,10 +285,14 @@ jobs:
       run: pip install -r backend/requirements-minimal.txt
 
     - name: Install Playwright browsers
-      run: pnpm exec playwright install --with-deps
+      run: pnpm exec playwright install --with-deps chromium
 
     - name: Run Playwright E2E tests
-      run: pnpm run test:e2e
+      # Chromium-only with a single retry: the full 3-browser × retries:2 matrix
+      # (384 runs, 1 worker) blew past the 30-min timeout and was always
+      # cancelled. Chromium gives the signal in a fraction of the time; run the
+      # other browsers locally (`pnpm run test:e2e`) when needed.
+      run: pnpm exec playwright test --project=chromium --retries=1
       env:
         ENVIRONMENT: test
         API_KEY: test-api-key-secure
