@@ -24,6 +24,9 @@ const STEPS_COUNT = 16;
 const RADIUS = 160;
 const CENTER = { x: 220, y: 220 };
 
+// How long a completed generation-queue item lingers before being pruned (M3)
+const QUEUE_ITEM_TTL = 5000; // milliseconds
+
 // Audio Engine Hook for Memory Management
 function useAudioEngine() {
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -31,8 +34,32 @@ function useAudioEngine() {
   const schedulerTimerRef = useRef<number | null>(null);
   const currentStepRef = useRef<number>(0);
   const nextNoteTimeRef = useRef<number>(0);
+  // Registry of currently-live source nodes so playback can be hard-stopped (H5)
+  const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  // requestAnimationFrame handle that drives the visible playhead (H6)
+  const rafRef = useRef<number | null>(null);
+  // Memoized reversed buffers keyed by source buffer (M4)
+  const reverseCacheRef = useRef<WeakMap<AudioBuffer, AudioBuffer>>(new WeakMap());
   const lookAhead = config.audioLookAhead; // milliseconds
   const scheduleAheadTime = config.audioScheduleAhead; // seconds
+
+  // Stop and disconnect every live source, then clear the registry (H5)
+  const stopAllSources = useCallback(() => {
+    liveSourcesRef.current.forEach((source) => {
+      try {
+        source.onended = null;
+        source.stop();
+      } catch (e) {
+        // Web Audio throws if the source already stopped — safe to ignore
+      }
+      try {
+        source.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+    });
+    liveSourcesRef.current.clear();
+  }, []);
 
   const initAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
@@ -60,7 +87,14 @@ function useAudioEngine() {
       clearTimeout(schedulerTimerRef.current);
       schedulerTimerRef.current = null;
     }
-    
+
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
+    stopAllSources();
+
     if (masterGainRef.current) {
       masterGainRef.current.disconnect();
       masterGainRef.current = null;
@@ -84,8 +118,12 @@ function useAudioEngine() {
     schedulerTimerRef,
     currentStepRef,
     nextNoteTimeRef,
+    liveSourcesRef,
+    rafRef,
+    reverseCacheRef,
     initAudioContext,
     cleanup,
+    stopAllSources,
     lookAhead,
     scheduleAheadTime
   };
@@ -115,6 +153,7 @@ export default function OrbitrSequencer() {
     assignToStepMulti,
     addToQueue,
     updateQueueItem,
+    removeFromQueue,
     audioCache,
     clearStep,
     clearStepMulti,
@@ -160,14 +199,19 @@ export default function OrbitrSequencer() {
 
   const reverseBuffer = useCallback((buffer: AudioBuffer): AudioBuffer => {
     if (!audioEngine.audioContextRef.current) return buffer;
-    
+
+    // Reuse a previously reversed buffer if we already computed one (M4).
+    // WeakMap keys are GC'd along with their source buffers, so no manual invalidation.
+    const cached = audioEngine.reverseCacheRef.current.get(buffer);
+    if (cached) return cached;
+
     const ctx = audioEngine.audioContextRef.current;
     const reversedBuffer = ctx.createBuffer(
       buffer.numberOfChannels,
       buffer.length,
       buffer.sampleRate
     );
-    
+
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
       const channelData = buffer.getChannelData(channel);
       const reversedData = reversedBuffer.getChannelData(channel);
@@ -175,9 +219,10 @@ export default function OrbitrSequencer() {
         reversedData[i] = channelData[channelData.length - 1 - i];
       }
     }
-    
+
+    audioEngine.reverseCacheRef.current.set(buffer, reversedBuffer);
     return reversedBuffer;
-  }, [audioEngine.audioContextRef]);
+  }, [audioEngine.audioContextRef, audioEngine.reverseCacheRef]);
 
   // Audio scheduling functions
   const scheduleNote = useCallback((buffer: AudioBuffer, time: number, gain: number = 1) => {
@@ -193,9 +238,14 @@ export default function OrbitrSequencer() {
       gainNode.gain.value = gain;
       
       source.start(time);
-      
-      // Cleanup after playback
+
+      // Track the live source so stopPlayback/unmount can hard-stop it (H5)
+      audioEngine.liveSourcesRef.current.add(source);
+
+      // Cleanup after playback — rely on onended rather than a fixed timeout so
+      // samples longer than maxPreviewDuration are not truncated (H5).
       source.onended = () => {
+        audioEngine.liveSourcesRef.current.delete(source);
         try {
           gainNode.disconnect();
           source.disconnect();
@@ -203,19 +253,10 @@ export default function OrbitrSequencer() {
           // Ignore cleanup errors
         }
       };
-      
-      // Force cleanup after configured duration
-      setTimeout(() => {
-        try {
-          source.stop();
-        } catch (e) {
-          // Ignore cleanup errors (source may have already ended)
-        }
-      }, config.maxPreviewDuration);
     } catch (error) {
-      console.error('Failed to schedule note:', error);
+      audioDebugLog('Failed to schedule note', error);
     }
-  }, [audioEngine.audioContextRef, audioEngine.masterGainRef, reverseBuffer]);
+  }, [audioEngine.audioContextRef, audioEngine.masterGainRef, audioEngine.liveSourcesRef, reverseBuffer]);
 
   const scheduler = useCallback(() => {
     if (!audioEngine.audioContextRef.current) return;
@@ -228,16 +269,18 @@ export default function OrbitrSequencer() {
       const currentSwing = swingRef.current;
       const currentBpm = bpmRef.current;
       const hasSoloTracks = currentTracks.some(t => t.solo);
-      
+      const stepDuration = 60.0 / currentBpm / 4; // 16th notes
+
       // Schedule notes for all tracks
       currentTracks.forEach(track => {
         if (track.muted) return;
-        
+
         if (hasSoloTracks && !track.solo) return;
-        
+
         const step = track.steps[stepIndex];
         if (step.active && step.buffer && Math.random() < step.prob) {
-          const swingDelay = (stepIndex % 2 === 1) ? currentSwing * 0.1 : 0;
+          // Swing as a fraction of the step duration so it scales with tempo (M2)
+          const swingDelay = (stepIndex % 2) * currentSwing * stepDuration * 0.5;
           scheduleNote(
             step.buffer,
             audioEngine.nextNoteTimeRef.current + swingDelay,
@@ -245,44 +288,62 @@ export default function OrbitrSequencer() {
           );
         }
       });
-      
-      // Advance to next step
-      const stepDuration = 60.0 / currentBpm / 4; // 16th notes
+
+      // Advance to next step. Keep the authoritative step in a ref; the visible
+      // currentStep state is driven by a rAF loop to avoid a re-render storm (H6).
       audioEngine.nextNoteTimeRef.current += stepDuration;
       audioEngine.currentStepRef.current = (audioEngine.currentStepRef.current + 1) % STEPS_COUNT;
-      setCurrentStep(audioEngine.currentStepRef.current);
     }
-    
+
     audioEngine.schedulerTimerRef.current = window.setTimeout(scheduler, audioEngine.lookAhead);
   }, [audioEngine, scheduleNote]);
 
+  // Drive the visible playhead from a single rAF loop, updating React state at
+  // most once per frame and only when the step actually changed (H6).
+  const playheadLoop = useCallback(() => {
+    setCurrentStep((prev) =>
+      prev === audioEngine.currentStepRef.current ? prev : audioEngine.currentStepRef.current
+    );
+    audioEngine.rafRef.current = requestAnimationFrame(playheadLoop);
+  }, [audioEngine.currentStepRef, audioEngine.rafRef]);
+
   const startPlayback = useCallback(async () => {
     try {
-      console.log('startPlayback called');
+      audioDebugLog('startPlayback called');
       await audioEngine.initAudioContext();
       if (!audioEngine.audioContextRef.current) throw new Error('Failed to initialize audio context');
-      
-      console.log('Audio context initialized, starting scheduler');
+
+      audioDebugLog('Audio context initialized, starting scheduler');
       audioEngine.nextNoteTimeRef.current = audioEngine.audioContextRef.current.currentTime;
+      audioEngine.currentStepRef.current = 0;
       scheduler();
-      console.log('Scheduler started');
+      // Start the playhead rAF loop (H6)
+      if (audioEngine.rafRef.current === null) {
+        audioEngine.rafRef.current = requestAnimationFrame(playheadLoop);
+      }
+      audioDebugLog('Scheduler started');
     } catch (error) {
-      console.error('startPlayback error:', error);
-      // setError(`Playback failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      audioDebugLog('startPlayback error', error);
       // Don't reset state on audio context error - keep UI state as playing
       // The user should see the button shows "playing" even if audio doesn't work
-      console.log('Audio failed but keeping UI in playing state');
+      audioDebugLog('Audio failed but keeping UI in playing state');
     }
-  }, [audioEngine, scheduler]);
+  }, [audioEngine, scheduler, playheadLoop]);
 
   const stopPlayback = useCallback(() => {
-    console.log('stopPlayback called - this will set isPlaying to false');
+    audioDebugLog('stopPlayback called - this will set isPlaying to false');
     if (audioEngine.schedulerTimerRef.current) {
       clearTimeout(audioEngine.schedulerTimerRef.current);
       audioEngine.schedulerTimerRef.current = null;
     }
+    // Cancel the playhead rAF loop (H6)
+    if (audioEngine.rafRef.current !== null) {
+      cancelAnimationFrame(audioEngine.rafRef.current);
+      audioEngine.rafRef.current = null;
+    }
+    // Hard-stop any sources already scheduled ahead so playback truly stops (H5)
+    audioEngine.stopAllSources();
     setIsPlaying(false);
-    console.log('stopPlayback called setIsPlaying(false)');
     audioEngine.currentStepRef.current = 0;
     setCurrentStep(0);
   }, [audioEngine]);
@@ -344,13 +405,16 @@ export default function OrbitrSequencer() {
   // Generation handler with environment-based API URL
   const handleGenerate = useCallback(async (prompt: string, stepIdx?: number, options: any = {}) => {
     generationDebugLog('Starting generation', { prompt, stepIdx, options });
-    
+
+    // Capture the unique queue id in the closure so success/error paths update
+    // and prune THIS exact item, even when prompts collide (M3).
+    const genId = rid();
+
     try {
       if (!audioEngine.audioContextRef.current) {
         await audioEngine.initAudioContext();
       }
-      
-      const genId = rid();
+
       addToQueue({
         id: genId,
         prompt,
@@ -392,26 +456,29 @@ export default function OrbitrSequencer() {
       }
       
       addToLibrary(item);
-      updateQueueItem(genId, { status: 'ready' });
-      
+      updateQueueItem(genId, { status: 'ready', progress: 100 });
+
       // Auto-assign if step specified
       if (stepIdx !== undefined && selectedTrack) {
         assignToStepMulti(selectedTrack, stepIdx, item.id);
       }
-      
+
+      // Prune the completed item shortly after so the queue can't grow
+      // unbounded across a session (M3)
+      setTimeout(() => removeFromQueue(genId), QUEUE_ITEM_TTL);
+
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Generation failed';
       setError(`AI generation failed: ${errorMsg}`);
-      
-      // Find and update the queue item
-      const queueItem = genQueue.find(q => q.prompt === prompt && q.status === 'generating');
-      if (queueItem) {
-        updateQueueItem(queueItem.id, { status: 'error' });
-      }
+
+      // Update THIS exact queue item by its unique id, not by prompt match,
+      // so concurrent generations sharing a prompt don't clobber each other (M3)
+      updateQueueItem(genId, { status: 'error' });
+      setTimeout(() => removeFromQueue(genId), QUEUE_ITEM_TTL);
     } finally {
       setLoading(false);
     }
-  }, [audioEngine, addToQueue, addToLibrary, assignToStepMulti, selectedTrack, updateQueueItem, genQueue, setLoading, setError]);
+  }, [audioEngine, addToQueue, addToLibrary, assignToStepMulti, selectedTrack, updateQueueItem, removeFromQueue, setLoading, setError]);
 
   // Keyboard shortcuts handlers
   const handleGenerateShortcut = useCallback(() => {
@@ -460,6 +527,7 @@ export default function OrbitrSequencer() {
         clearTimeout(audioEngine.schedulerTimerRef.current);
         audioEngine.schedulerTimerRef.current = null;
       }
+      // cleanup() cancels the rAF loop and hard-stops every live source (H5/H6)
       setIsPlaying(false);
       audioEngine.currentStepRef.current = 0;
       setCurrentStep(0);
@@ -494,6 +562,7 @@ export default function OrbitrSequencer() {
             }}
             onPlayheadClick={togglePlayback}
             audioContext={audioEngine.audioContextRef.current || undefined}
+            audioSource={audioEngine.masterGainRef.current || undefined}
           />
           
           {/* Transport Controls */}

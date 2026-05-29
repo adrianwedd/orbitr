@@ -153,23 +153,32 @@ describe('AudioStore Multi-Track Logic', () => {
 
     it('should handle solo logic correctly', () => {
       const { result } = renderHook(() => useAudioStore())
-      
+
       // Solo track 2
       act(() => {
         result.current.setTrackSolo('track2', true)
       })
-      
+
       expect(result.current.tracks[1].solo).toBe(true)
-      // All other tracks should not be solo
+      // Other tracks remain un-soloed
       expect(result.current.tracks[0].solo).toBe(false)
       expect(result.current.tracks[2].solo).toBe(false)
       expect(result.current.tracks[3].solo).toBe(false)
-      
-      // Solo a different track - should unsolo previous
+
+      // Solo behaviour is non-destructive: soloing another track must NOT
+      // unsolo the first, so multiple tracks can be soloed at once (M1).
       act(() => {
         result.current.setTrackSolo('track3', true)
       })
-      
+
+      expect(result.current.tracks[1].solo).toBe(true)
+      expect(result.current.tracks[2].solo).toBe(true)
+
+      // Un-soloing a track only affects that track
+      act(() => {
+        result.current.setTrackSolo('track2', false)
+      })
+
       expect(result.current.tracks[1].solo).toBe(false)
       expect(result.current.tracks[2].solo).toBe(true)
     })
