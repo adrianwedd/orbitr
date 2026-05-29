@@ -3,8 +3,13 @@ import json
 import base64
 from fastapi.testclient import TestClient
 from app import app, get_cache_key, audio_to_base64_wav, generate_fake_audio, GenerateRequest
+from security_config import security_config
 
 client = TestClient(app)
+
+# /cache/clear now always requires authentication (even in development), so tests
+# that exercise it must present the configured bearer token.
+AUTH_HEADERS = {"Authorization": f"Bearer {security_config.api_key}"}
 
 class TestAPIEndpoints:
     
@@ -70,8 +75,8 @@ class TestAPIEndpoints:
         assert isinstance(data["files"], int)
         assert isinstance(data["size_mb"], (int, float))
         
-        # Test cache clear endpoint (DELETE, not GET)
-        response = client.delete("/cache/clear")
+        # Test cache clear endpoint (DELETE, not GET) — now requires auth
+        response = client.delete("/cache/clear", headers=AUTH_HEADERS)
         assert response.status_code == 200
         assert "message" in response.json()
 

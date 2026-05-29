@@ -160,11 +160,44 @@ class SecurityConfig:
         
         return origins
     
+    @staticmethod
+    def _normalize_host(value: str) -> str:
+        """Strip scheme, port, and path from a host/origin string.
+
+        TrustedHostMiddleware matches against the bare hostname only, so a value
+        like 'http://localhost:3000' or 'localhost:3000' must be reduced to
+        'localhost' to match.
+        """
+        host = value.strip()
+        # Strip scheme
+        if "://" in host:
+            host = host.split("://", 1)[1]
+        # Strip any path
+        host = host.split("/", 1)[0]
+        # Strip port (handle IPv6 in brackets separately)
+        if host.startswith("["):  # IPv6 literal, e.g. [::1]:3000
+            host = host.split("]", 1)[0] + "]"
+        elif ":" in host:
+            host = host.rsplit(":", 1)[0]
+        return host
+
     def _parse_trusted_hosts(self) -> List[str]:
-        """Parse trusted hosts from CORS origins"""
-        hosts = []
-        for origin in self.cors_origins:
-            host = origin.replace("https://", "").replace("http://", "")
+        """Parse trusted hosts.
+
+        Prefer the explicit TRUSTED_HOSTS env var (comma-separated). Each entry
+        has its scheme AND port stripped so TrustedHostMiddleware can match the
+        bare hostname. Falls back to deriving hosts from the CORS origins only
+        when TRUSTED_HOSTS is unset.
+        """
+        hosts: List[str] = []
+        trusted_str = os.getenv("TRUSTED_HOSTS")
+        if trusted_str:
+            sources = [h for h in trusted_str.split(",") if h.strip()]
+        else:
+            sources = self.cors_origins
+
+        for source in sources:
+            host = self._normalize_host(source)
             if host and host not in hosts:
                 hosts.append(host)
         return hosts
@@ -249,7 +282,14 @@ class SecurityConfig:
             "cleanup_interval": int(os.getenv("CACHE_CLEANUP_INTERVAL", "3600")),  # 1 hour
         }
 
-# Global security configuration instance
+# Global security configuration instance.
+#
+# NOTE: This singleton is intentionally constructed at import time because many
+# modules do `from security_config import security_config`. Construction only
+# reads environment variables (no threads, no network, no file I/O), so importing
+# this module is side-effect free apart from reading env. Tests that need
+# different settings must set the relevant env vars BEFORE importing app/this
+# module (conftest.py does this), or patch the live singleton's attributes.
 security_config = SecurityConfig()
 
 # Security utilities

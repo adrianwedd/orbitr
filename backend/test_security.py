@@ -38,11 +38,22 @@ def reset_rate_limits():
     require_auth_in_dev=False.  Patch the live singleton here instead.
     conftest.py handles rate-limiter storage reset.
     """
+    # Snapshot the singleton's mutable auth state so we can restore it on teardown.
+    # Without this, these mutations leak into other test modules (e.g. test_app.py)
+    # if they run afterwards, breaking their no-auth dev-mode expectations.
+    _orig_require_auth = security_config.auth_config.require_auth_in_dev
+    _orig_api_key = security_config.api_key
+
     security_config.auth_config.require_auth_in_dev = True
     security_config.api_key = "test-api-key-secure"
     security_metrics.blocked_ips.clear()
     security_metrics.failed_auth_attempts.clear()
     yield
+
+    security_config.auth_config.require_auth_in_dev = _orig_require_auth
+    security_config.api_key = _orig_api_key
+    security_metrics.blocked_ips.clear()
+    security_metrics.failed_auth_attempts.clear()
 
 @pytest.fixture
 def isolated_client():
@@ -256,7 +267,9 @@ class TestResourceLimits:
         """Test concurrent generation limits"""
         headers = {"Authorization": "Bearer test-api-key-secure"}
         
-        with patch('app.current_generations', 2), patch('app.max_concurrent_generations', 2):
+        # Simulate the concurrency semaphore being fully exhausted so the next
+        # request is rejected with 429 (the semaphore replaced the old counter).
+        with patch('app._try_acquire_generation_slot', return_value=False):
             response = client.post("/generate", json={"prompt": "test"}, headers=headers)
             assert response.status_code == 429
             # Check the response content to distinguish from rate limiting

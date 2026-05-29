@@ -130,7 +130,8 @@ class APIKeyManager:
         key_hash = self._hash_key(api_key)
         
         for key_obj in self.keys.values():
-            if key_obj.key_hash == key_hash:
+            # Constant-time comparison to avoid leaking key material via timing.
+            if secrets.compare_digest(key_obj.key_hash, key_hash):
                 if key_obj.is_valid():
                     key_obj.update_usage()
                     self.save_keys()
@@ -290,47 +291,74 @@ class APIKeyManager:
             # Initialize empty keys dict on error
             self.keys = {}
 
-# Global API key manager instance
-api_key_manager = APIKeyManager()
+# Lazily-initialised global API key manager.
+#
+# Construction does file I/O (reads/creates the encryption key and key store), so
+# we defer it until first use rather than running it at import time. This keeps
+# `import api_key_management` side-effect free, which matters for tests that merely
+# import the module.
+_api_key_manager: Optional["APIKeyManager"] = None
+_cleanup_thread = None
+
+
+def get_api_key_manager() -> "APIKeyManager":
+    """Return the process-wide APIKeyManager, creating it on first use."""
+    global _api_key_manager
+    if _api_key_manager is None:
+        _api_key_manager = APIKeyManager()
+    return _api_key_manager
+
 
 # Utility functions for integration
 def validate_api_key_with_permissions(api_key: str, required_permission: str) -> Optional[APIKey]:
     """Validate API key and check permissions"""
-    key_obj = api_key_manager.validate_api_key(api_key)
+    key_obj = get_api_key_manager().validate_api_key(api_key)
     if key_obj and required_permission in key_obj.permissions:
         return key_obj
     return None
 
 def get_api_key_for_legacy_support() -> str:
     """Get or create API key for legacy configuration support"""
+    manager = get_api_key_manager()
     # Check if we have a default key
-    for key_obj in api_key_manager.keys.values():
+    for key_obj in manager.keys.values():
         if key_obj.name == "default" and key_obj.is_valid():
             return "orbitr_" + secrets.token_urlsafe(32)  # We can't return the actual key
-    
+
     # Create a default key if none exists
-    key_id, api_key = api_key_manager.generate_api_key(
+    key_id, api_key = manager.generate_api_key(
         name="default",
         expires_in_days=365,  # 1 year
         permissions=["generate", "cache", "health"]
     )
-    
+
     return api_key
 
 # Initialize cleanup task
 def schedule_key_cleanup():
-    """Schedule periodic cleanup of expired keys"""
+    """Start a daemon thread that periodically cleans up expired keys.
+
+    Started lazily (on explicit call) rather than at import so that merely
+    importing this module — as tests do — does not spawn background threads.
+    Idempotent: repeated calls will not start more than one thread.
+    """
+    global _cleanup_thread
     import threading
     import time
-    
+
+    if _cleanup_thread is not None and _cleanup_thread.is_alive():
+        return _cleanup_thread
+
     def cleanup_task():
         while True:
             time.sleep(24 * 3600)  # Run daily
-            api_key_manager.cleanup_expired_keys()
-    
-    cleanup_thread = threading.Thread(target=cleanup_task, daemon=True)
-    cleanup_thread.start()
+            get_api_key_manager().cleanup_expired_keys()
 
-# Auto-start cleanup if module is imported
-if __name__ != "__main__":
+    _cleanup_thread = threading.Thread(target=cleanup_task, daemon=True)
+    _cleanup_thread.start()
+    return _cleanup_thread
+
+
+if __name__ == "__main__":
+    # Only start the background cleanup when run as a standalone script.
     schedule_key_cleanup()

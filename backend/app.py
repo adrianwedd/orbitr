@@ -9,8 +9,10 @@ import io
 import json
 import hashlib
 import re
+import secrets
 import time
 import asyncio
+import tempfile
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -36,7 +38,6 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 import bleach
-import validators
 from dotenv import load_dotenv
 from security_config import security_config, SecurityLevel
 from security_middleware import (
@@ -60,11 +61,69 @@ MAX_REQUEST_SIZE = security_config.max_request_size
 ENVIRONMENT = security_config.environment.value
 
 # Rate limiter setup
-limiter = Limiter(key_func=get_remote_address)
+#
+# Forwarded-aware key function: rate-limit on the real client IP rather than the
+# direct peer (which behind a proxy/load balancer is the proxy itself). This
+# reuses the same X-Forwarded-For parsing logic as SecurityMiddleware._get_client_ip.
+_FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "cf-connecting-ip", "x-cluster-client-ip")
+
+
+def _forwarded_key_func(request: Request) -> str:
+    """Rate-limit key derived from the real client IP (honours X-Forwarded-For)."""
+    for header in _FORWARDED_HEADERS:
+        value = request.headers.get(header)
+        if value:
+            ip = value.split(",")[0].strip()
+            if ip:
+                return ip
+    return get_remote_address(request)
+
+
+# Shared storage for rate-limit counters. Per-process in-memory storage is the
+# default, but it is multiplied by the number of workers and is NOT shared across
+# them — multi-worker production deployments MUST set RATELIMIT_STORAGE_URI (or
+# REDIS_URL), e.g. "redis://host:6379", so all workers share one counter.
+_RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI") or os.getenv("REDIS_URL")
+if _RATELIMIT_STORAGE_URI:
+    limiter = Limiter(key_func=_forwarded_key_func, storage_uri=_RATELIMIT_STORAGE_URI)
+else:
+    limiter = Limiter(key_func=_forwarded_key_func)
 
 # Global state for resource management
-current_generations = 0
 max_concurrent_generations = MAX_CONCURRENT_GENERATIONS
+
+# Concurrency control: a Semaphore avoids the TOCTOU race that a plain counter has
+# across `await` boundaries. Acquired non-blocking so an over-capacity request gets
+# an immediate 429 instead of queueing. Recreated at startup / in tests via
+# reset_generation_semaphore() so the configured max is always honoured.
+generation_semaphore = asyncio.Semaphore(max_concurrent_generations)
+
+
+def reset_generation_semaphore(max_concurrent: Optional[int] = None) -> None:
+    """(Re)create the generation semaphore with the configured maximum.
+
+    Used at startup and by test fixtures to guarantee a clean, fully-available
+    semaphore between tests.
+    """
+    global generation_semaphore, max_concurrent_generations
+    if max_concurrent is not None:
+        max_concurrent_generations = max_concurrent
+    generation_semaphore = asyncio.Semaphore(max_concurrent_generations)
+
+
+def _try_acquire_generation_slot() -> bool:
+    """Non-blocking acquire of a generation slot.
+
+    asyncio.Semaphore has no public try-acquire, so we inspect/decrement the
+    internal counter. Since this runs inside the single-threaded event loop with
+    no intervening await between the check and decrement, it is atomic with
+    respect to other coroutines — closing the TOCTOU window. Returns True if a
+    slot was reserved (caller MUST release it), False if at capacity.
+    """
+    if generation_semaphore._value <= 0:
+        return False
+    generation_semaphore._value -= 1
+    return True
 
 # Lazy load AudioCraft to speed up startup
 musicgen_model = None
@@ -73,7 +132,8 @@ melody_model = None
 # Application lifespan management
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup: (re)create the concurrency semaphore bound to the running loop.
+    reset_generation_semaphore(MAX_CONCURRENT_GENERATIONS)
     if ENVIRONMENT != "development":
         loop = asyncio.get_event_loop()
         loop.run_in_executor(executor, load_models)
@@ -105,43 +165,60 @@ if security_config.environment == SecurityLevel.PRODUCTION:
 # Authentication
 security = HTTPBearer(auto_error=False)
 
-async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    """Enhanced API key verification with security logging"""
+async def _verify_api_key(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials],
+    allow_dev_bypass: bool,
+):
+    """Core API key verification with security logging.
+
+    When ``allow_dev_bypass`` is True, unauthenticated requests are accepted in
+    development mode (preserving local-dev ergonomics for generation endpoints).
+    When False, the bearer token is ALWAYS required regardless of environment —
+    used for destructive/sensitive endpoints (cache clear, security metrics).
+    """
     client_ip = request.client.host if hasattr(request, 'client') and hasattr(request.client, 'host') else 'unknown'
     user_agent = request.headers.get('user-agent', '')
-    
-    # Check API key expiration  
+
+    # Check API key expiration
     if security_config.is_api_key_expired():
         AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "API key expired")
         raise HTTPException(status_code=401, detail="API key expired")
-    
-    # Development mode check
-    if (security_config.environment == SecurityLevel.DEVELOPMENT and 
-        not security_config.auth_config.require_auth_in_dev and 
-        not credentials):
+
+    # Development mode bypass (only for non-sensitive endpoints)
+    if (allow_dev_bypass and
+            security_config.environment == SecurityLevel.DEVELOPMENT and
+            not security_config.auth_config.require_auth_in_dev and
+            not credentials):
         return True
-    
+
     if not credentials:
         AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "No credentials provided")
         raise HTTPException(status_code=401, detail="API key required")
-    
-    if credentials.credentials != security_config.api_key:
+
+    # Constant-time comparison to avoid leaking the key via timing side-channels.
+    if not secrets.compare_digest(credentials.credentials, security_config.api_key):
         AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "Invalid API key")
         raise HTTPException(status_code=401, detail="Invalid API key")
-    
+
     # Log successful authentication
     AuthenticationMiddleware.log_auth_success(client_ip, user_agent)
     return True
 
-# Resource management
-async def check_generation_capacity():
-    """Check if we can accept new generation requests"""
-    global current_generations
-    if current_generations >= max_concurrent_generations:
-        raise HTTPException(
-            status_code=429, 
-            detail=f"Too many concurrent generations. Maximum {max_concurrent_generations} allowed"
-        )
+
+async def verify_api_key(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """API key verification for generation endpoints (allows dev bypass)."""
+    return await _verify_api_key(request, credentials, allow_dev_bypass=True)
+
+
+async def verify_api_key_strict(request: Request, credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Strict API key verification for destructive/sensitive endpoints.
+
+    Always requires a valid bearer token, even in development mode. Used by
+    /cache/clear (DELETE) and /security/metrics so they can never be reached
+    unauthenticated regardless of environment configuration.
+    """
+    return await _verify_api_key(request, credentials, allow_dev_bypass=False)
 
 # Thread pool for CPU-bound operations
 executor = ThreadPoolExecutor(max_workers=max_concurrent_generations)
@@ -336,14 +413,36 @@ def audio_to_base64_wav(audio: np.ndarray, sample_rate: int = 32000) -> str:
     # Encode to base64
     return base64.b64encode(buffer.read()).decode('utf-8')
 
+def _write_cache_atomic(cache_file: Path, data: bytes) -> None:
+    """Write cache data atomically.
+
+    Writes to a temp file in the same directory then os.replace()s it onto the
+    final path. os.replace() is atomic on POSIX, so concurrent readers always see
+    either the old file or the complete new file — never a partial write left
+    behind by a crash or timeout.
+    """
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=str(cache_file.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(data)
+        os.replace(tmp_path, cache_file)
+    except BaseException:
+        # Clean up the temp file on any failure so we don't leak partial files.
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
 # Add security monitoring endpoint
 @app.get("/security/metrics")
 @limiter.limit(f"{HEALTH_RATE_LIMIT//10}/minute")
 async def security_metrics(
     request: Request,
-    authenticated: bool = Depends(verify_api_key)
+    authenticated: bool = Depends(verify_api_key_strict)
 ):
-    """Get security metrics (protected endpoint)"""
+    """Get security metrics (always requires auth, even in development)"""
     return get_security_metrics()
 
 @app.get("/")
@@ -371,7 +470,7 @@ async def health_check(request: Request):
             "request_size_limited": True
         },
         "resources": {
-            "current_generations": current_generations,
+            "current_generations": max(0, max_concurrent_generations - generation_semaphore._value),
             "max_concurrent": max_concurrent_generations,
             "models_loaded": musicgen_model is not None
         }
@@ -386,13 +485,14 @@ async def generate_sample(
     authenticated: bool = Depends(verify_api_key)
 ):
     """Generate audio sample from text prompt (protected endpoint)"""
-    global current_generations
-    
-    # Check generation capacity
-    await check_generation_capacity()
-    
-    # Increment generation counter
-    current_generations += 1
+    # Atomically reserve a generation slot. The non-blocking acquire below avoids
+    # the TOCTOU race a plain counter has across await points: if no slot is
+    # available we immediately reject with 429 rather than queueing.
+    if not _try_acquire_generation_slot():
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many concurrent generations. Maximum {max_concurrent_generations} allowed"
+        )
 
     try:
         # Check cache first
@@ -473,10 +573,11 @@ async def generate_sample(
         # Convert to base64 WAV
         audio_base64 = audio_to_base64_wav(audio, sample_rate)
         
-        # Cache the result
-        with open(cache_file, 'wb') as f:
-            f.write(base64.b64decode(audio_base64))
-        
+        # Cache the result atomically: write to a temp file in the same dir then
+        # os.replace() (atomic on POSIX) so a crash/timeout mid-write can never
+        # leave a truncated file that gets served as a cache hit forever.
+        _write_cache_atomic(cache_file, base64.b64decode(audio_base64))
+
         # Generate name from prompt
         name = f"{generate_request.prompt[:30]}-{generate_request.seed}"
         
@@ -495,8 +596,8 @@ async def generate_sample(
             error_msg = f"Audio generation failed: {str(e)}"
         raise HTTPException(status_code=500, detail=error_msg)
     finally:
-        # Always decrement generation counter
-        current_generations = max(0, current_generations - 1)
+        # Always release the reserved generation slot (exception-safe).
+        generation_semaphore.release()
 
 @app.post("/generate_batch")
 @limiter.limit(f"{GENERATION_RATE_LIMIT//2}/minute")  # Lower limit for batch operations
@@ -540,9 +641,9 @@ async def generate_batch(
 @limiter.limit(f"{CACHE_RATE_LIMIT//10}/minute")  # Very limited for destructive operations
 async def clear_cache(
     request: Request,
-    authenticated: bool = Depends(verify_api_key)
+    authenticated: bool = Depends(verify_api_key_strict)
 ):
-    """Clear the audio cache (protected endpoint)"""
+    """Clear the audio cache (always requires auth, even in development)"""
     import shutil
     try:
         if CACHE_DIR.exists():
