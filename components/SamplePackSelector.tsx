@@ -3,7 +3,7 @@ import { SAMPLE_PACKS, SamplePack, createSampleFromPack } from '@/lib/samplePack
 import { useAudioStore } from '@/lib/audioStore';
 import { Tooltip } from './ui/Tooltip';
 import { getApiUrl, config } from '@/lib/config';
-import { generateStaticSample } from '@/lib/staticSamples';
+import { generateStaticSample, getSharedAudioContext } from '@/lib/staticSamples';
 import axios from 'axios';
 
 interface SamplePackSelectorProps {
@@ -29,7 +29,9 @@ export function SamplePackSelector({ onPackLoad, embedded = false, hideHeader = 
     setLoading(true, `Loading ${pack.name} sample pack...`);
     
     try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Reuse the shared AudioContext so loading a pack does not spawn (and
+      // leak) a new context per pack and hit the browser's context cap.
+      const audioContext = getSharedAudioContext();
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
       }
@@ -101,7 +103,8 @@ export function SamplePackSelector({ onPackLoad, embedded = false, hideHeader = 
     setLoading(true, `Generating ${sample.name}...`);
     
     try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Reuse the shared AudioContext rather than creating a transient one.
+      const audioContext = getSharedAudioContext();
       if (audioContext.state === 'suspended') {
         await audioContext.resume();
       }

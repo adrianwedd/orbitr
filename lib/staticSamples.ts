@@ -7,6 +7,26 @@ import { rid } from './utils';
 // 2. Pre-generate samples and embed them as base64
 // 3. Load samples from a CDN or external storage
 
+// Shared AudioContext singleton.
+//
+// Browsers cap the number of live AudioContexts (~6 in Chrome). Previously
+// every decode/preview created its own `new AudioContext()` and never closed
+// it, so loading a sample pack would exhaust the cap and subsequent contexts
+// would fail. We reuse a single lazily-created context for all one-off
+// decodes/previews across the sample-loading UI instead.
+let sharedAudioContext: AudioContext | null = null;
+
+export function getSharedAudioContext(): AudioContext {
+  if (typeof window === 'undefined') {
+    throw new Error('AudioContext is only available in the browser');
+  }
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    sharedAudioContext = new Ctx();
+  }
+  return sharedAudioContext;
+}
+
 export async function generateStaticSample(prompt: string): Promise<SampleLibraryItem> {
   if (!config.isStaticMode) {
     throw new Error('Static samples only available in static mode');
@@ -44,8 +64,8 @@ async function generateWithHuggingFace(prompt: string): Promise<SampleLibraryIte
     const audioBlob = await response.blob();
     const arrayBuffer = await audioBlob.arrayBuffer();
     
-    // Decode audio with Web Audio API
-    const audioContext = new AudioContext();
+    // Decode audio with the shared Web Audio context (never closed; reused)
+    const audioContext = getSharedAudioContext();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
     
     return {
@@ -63,8 +83,8 @@ async function generateWithHuggingFace(prompt: string): Promise<SampleLibraryIte
 }
 
 async function generateMockSample(prompt: string): Promise<SampleLibraryItem> {
-  // Create a synthetic audio buffer for demonstration
-  const audioContext = new AudioContext();
+  // Create a synthetic audio buffer for demonstration (shared, reused context)
+  const audioContext = getSharedAudioContext();
   const sampleRate = audioContext.sampleRate;
   const duration = 2; // 2 seconds
   const numSamples = sampleRate * duration;

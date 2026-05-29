@@ -15,6 +15,12 @@ interface EnhancedSequencerProps {
   onStepClick: (trackId: string, stepIndex: number) => void;
   onPlayheadClick: () => void;
   audioContext?: AudioContext;
+  /**
+   * Optional source node to feed into the analyser (typically the app's master
+   * gain node). Without it the analyser has no input and the visuals read
+   * silence. See OrbitrSequencer wiring note below.
+   */
+  audioSource?: AudioNode;
 }
 
 const STEPS_COUNT = 16;
@@ -25,62 +31,87 @@ export function EnhancedSequencer({
   currentStep,
   onStepClick,
   onPlayheadClick,
-  audioContext
+  audioContext,
+  audioSource
 }: EnhancedSequencerProps) {
   const sequencerRef = useRef<HTMLDivElement>(null);
   const canvasEngineRef = useRef<CanvasVisualizationEngine | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const [audioData, setAudioData] = useState<AudioAnalysisData | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   
   const { tracks, selectedTrack, selectedStep, setSelectedTrack, setSelectedStep, toggleStepMulti } = useAudioStore();
 
+  // Tear down everything created by the init effect. Safe to call multiple
+  // times (each step is guarded), so the effect cleanup and unmount cleanup
+  // can share it without double-teardown side effects.
+  const teardownEnhancements = useCallback(() => {
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+    // cleanup() also stops the RAF loop and disconnects the analyser node, so a
+    // subsequent re-init does not leave a stale analyser wired to the source.
+    audioAnalysis.cleanup();
+    if (canvasEngineRef.current) {
+      canvasEngineRef.current.cleanup();
+      canvasEngineRef.current = null;
+    }
+  }, []);
+
   // Initialize audio analysis and canvas visualization
   useEffect(() => {
     if (!audioContext || !sequencerRef.current) return;
 
+    // If the effect re-runs (e.g. audioContext changes) we must guard against
+    // the async init resolving after the effect has already been cleaned up,
+    // otherwise we'd create a second canvas/engine/RAF/analyser and leak it.
+    let cancelled = false;
+    const container = sequencerRef.current;
+
     const initializeEnhancements = async () => {
       try {
-        // Initialize audio analysis
-        await audioAnalysis.initialize(audioContext);
-        
-        // Create canvas visualization overlay
-        const { engine } = createVisualizationCanvas(sequencerRef.current!);
+        // Initialize audio analysis, feeding the master gain node (when
+        // provided) into the analyser so it measures real audio rather than
+        // silence.
+        await audioAnalysis.initialize(audioContext, audioSource);
+        if (cancelled) {
+          audioAnalysis.cleanup();
+          return;
+        }
+
+        // Create canvas visualization overlay and store the handle
+        // synchronously so cleanup can always find it.
+        const { engine } = createVisualizationCanvas(container);
         canvasEngineRef.current = engine;
-        
+
         // Start audio analysis and canvas
         audioAnalysis.start();
         engine.start();
-        
-        // Subscribe to audio analysis updates
-        const unsubscribe = audioAnalysis.onAnalysis((data) => {
+
+        // Subscribe to audio analysis updates and stash the unsubscribe in a
+        // ref so the (synchronous) useEffect cleanup can actually call it.
+        unsubscribeRef.current = audioAnalysis.onAnalysis((data) => {
           setAudioData(data);
           engine.updateAudioData(data);
         });
-        
+
         setIsInitialized(true);
-        
-        return () => {
-          unsubscribe();
-          audioAnalysis.stop();
-          engine.cleanup();
-        };
       } catch (error) {
         console.error('Failed to initialize enhanced sequencer:', error);
       }
     };
 
     initializeEnhancements();
-  }, [audioContext]);
 
-  // Cleanup on unmount
-  useEffect(() => {
+    // Real, synchronous cleanup — runs when audioContext/audioSource change or
+    // on unmount. The async function above can no longer swallow this.
     return () => {
-      if (canvasEngineRef.current) {
-        canvasEngineRef.current.cleanup();
-      }
-      audioAnalysis.stop();
+      cancelled = true;
+      teardownEnhancements();
+      setIsInitialized(false);
     };
-  }, []);
+  }, [audioContext, audioSource, teardownEnhancements]);
 
   // Update CSS custom properties with audio-reactive colors
   useEffect(() => {

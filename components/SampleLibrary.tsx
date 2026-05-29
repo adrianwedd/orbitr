@@ -5,6 +5,7 @@ import { config, audioDebugLog } from '@/lib/config';
 import { Tooltip } from './ui/Tooltip';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { useCacheManager } from '@/lib/useCacheManager';
+import { getSharedAudioContext } from '@/lib/staticSamples';
 
 interface SampleLibraryProps {
   library: SampleLibraryItem[];
@@ -103,7 +104,11 @@ export function SampleLibrary({ library, onFileUpload, embedded = false, hideHea
 
   const playPreview = useCallback(async (item: SampleLibraryItem) => {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Reuse the shared AudioContext. A preview must NOT close the context
+      // (it's shared across the app and previously hit the browser context
+      // cap when a new one was created per preview); we only disconnect the
+      // transient buffer source node.
+      const ctx = getSharedAudioContext();
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
@@ -111,17 +116,16 @@ export function SampleLibrary({ library, onFileUpload, embedded = false, hideHea
       source.buffer = item.buffer;
       source.connect(ctx.destination);
       source.start();
-      
+
       // Cleanup after configured duration or when buffer ends
       const cleanup = () => {
         try {
           source.disconnect();
-          ctx.close();
         } catch (e) {
           // Ignore cleanup errors
         }
       };
-      
+
       source.onended = cleanup;
       setTimeout(cleanup, config.maxPreviewDuration);
       audioDebugLog('Playing preview', { name: item.name, duration: item.duration });
