@@ -189,9 +189,12 @@ async def _verify_api_key(
         AuthenticationMiddleware.log_auth_failure(client_ip, user_agent, "API key expired")
         raise HTTPException(status_code=401, detail="API key expired")
 
-    # Development mode bypass (only for non-sensitive endpoints)
+    # Development/test bypass (only for non-sensitive endpoints). The TEST
+    # environment is a non-production convenience mode like DEVELOPMENT, so
+    # generation endpoints are reachable without a token; sensitive endpoints
+    # use verify_api_key_strict (allow_dev_bypass=False) and are never bypassed.
     if (allow_dev_bypass and
-            security_config.environment == SecurityLevel.DEVELOPMENT and
+            security_config.environment in (SecurityLevel.DEVELOPMENT, SecurityLevel.TEST) and
             not security_config.auth_config.require_auth_in_dev and
             not credentials):
         return True
