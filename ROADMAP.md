@@ -5,12 +5,23 @@ Transform Orbitr from a functional prototype into a polished, production-ready A
 
 ## Development Phases
 
+## ✅ Shipped (as of 2026-05)
+- [x] Backend security layer: bearer-token auth, slowapi rate limiting, bleach input sanitization, per-generation concurrency limits + timeout (closes the security hardening work)
+- [x] Trusted-proxy-gated client-IP resolution (X-Forwarded-For spoofing defense)
+- [x] Structured security logging (JSON, rotating file handler) in `security_logging.py`
+- [x] CI/CD migrated from npm to pnpm; `packageManager` field added; Playwright baseURL standardized to port 3000
+- [x] Audio: schedulerTimer memory leak fixed; queue-prune timers cleaned up on unmount; AudioContext lifecycle + visualizer analyser wiring fixed
+- [x] Generation-failure user feedback (error status surfaced in the queue/UI)
+- [x] Backend test deps split into `requirements-dev.txt` (pytest + httpx)
+- [x] 81/81 frontend Jest tests + 49 backend pytest tests passing locally
+
 ### 📍 Phase 1: Foundation Polish (Current - Week 1-2)
 **Goal**: Stabilize core functionality and improve UX
 
 #### Core Stability
+> Known gap: React error boundaries and full offline graceful-degradation are not yet implemented.
 - [ ] Fix any WebAudio timing edge cases
-- [ ] Handle audio context suspension/resume properly
+- [x] Handle audio context suspension/resume properly
 - [ ] Add proper error boundaries in React
 - [ ] Implement graceful degradation when backend is offline
 - [ ] Add loading states for all async operations
@@ -20,7 +31,7 @@ Transform Orbitr from a functional prototype into a polished, production-ready A
 - [ ] Implement drag-to-reorder in sample library
 - [ ] Add visual waveform preview on step hover
 - [ ] Create smooth transitions for all state changes
-- [ ] Add tooltips for all controls
+- [x] Add tooltips for all controls
 - [ ] Implement proper focus management for accessibility
 
 #### Audio Engine
