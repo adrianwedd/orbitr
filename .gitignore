@@ -65,6 +65,7 @@ backend/cache/
 # Testing
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 
 # Build outputs

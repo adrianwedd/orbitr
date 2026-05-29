@@ -3,9 +3,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  # Allow manual deployment
+  # Allow manual deployment. (Dropped the per-PR build — the static export is
+  # verified on merge to main; run `pnpm run build:static` locally to check.)
   workflow_dispatch:
 
 permissions:
