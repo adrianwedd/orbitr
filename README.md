@@ -23,6 +23,15 @@ A web-based polyphonic circular step sequencer inspired by Playtronica's Orbita,
 - **Smart caching** - Instant recall of previously generated samples
 - **Genre packs** - Pre-configured sample generation templates
 
+### 🔒 Backend Security
+- **Bearer-token API auth** - Generation and cache endpoints require a token (set via the `API_KEY` env var); relaxed in `development`, enforced in `production`.
+- **Rate limiting** - Per-endpoint limits via [slowapi](https://github.com/laurentS/slowapi) (`GENERATION_RATE_LIMIT`, etc.).
+- **Input sanitization** - Prompts are cleaned with [bleach](https://github.com/mozilla/bleach) and capped by `MAX_PROMPT_LENGTH`.
+- **Concurrency + timeout limits** - Per-generation guards via `MAX_CONCURRENT_GENERATIONS` and `GENERATION_TIMEOUT`.
+- **Trusted-proxy aware** - Forwarded headers (`X-Forwarded-For`) are honored only from configured `TRUSTED_PROXIES`, preventing rate-limit/IP-block spoofing.
+- **Structured security logging** - Security events are written to `backend/security.log`.
+- **Observability endpoints** - `GET /health` for health/config status and `GET /security/metrics` for security telemetry.
+
 ### 🎛️ Professional Controls
 - **Per-track controls** - Volume, mute, solo, clear
 - **Per-step parameters** - Gain, probability, timing offset
@@ -63,9 +72,21 @@ pnpm install
 cd backend
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Full AI backend (MusicGen/AudioCraft + torch):
 pip install -r requirements.txt
+
+# Or minimal / fake-audio mode (no torch, no heavy AI stack):
+pip install -r requirements-minimal.txt
 cd ..
 ```
+
+> **Running backend tests?** Install the dev dependencies instead:
+> ```bash
+> cd backend && pip install -r requirements-dev.txt
+> ```
+> This layers `pytest` + `httpx` on top of `requirements-minimal.txt`, letting the
+> test suite run in fake-audio mode without pulling in the heavy AI/torch stack.
 
 4. **Configure environment**
 ```bash
