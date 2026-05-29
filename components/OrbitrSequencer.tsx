@@ -37,8 +37,6 @@ function useAudioEngine() {
   const nextNoteTimeRef = useRef<number>(0);
   // Registry of currently-live source nodes so playback can be hard-stopped (H5)
   const liveSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  // requestAnimationFrame handle that drives the visible playhead (H6)
-  const rafRef = useRef<number | null>(null);
   // Memoized reversed buffers keyed by source buffer (M4)
   const reverseCacheRef = useRef<WeakMap<AudioBuffer, AudioBuffer>>(new WeakMap());
   const lookAhead = config.audioLookAhead; // milliseconds
@@ -89,11 +87,6 @@ function useAudioEngine() {
       schedulerTimerRef.current = null;
     }
 
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-
     stopAllSources();
 
     if (masterGainRef.current) {
@@ -120,7 +113,6 @@ function useAudioEngine() {
     currentStepRef,
     nextNoteTimeRef,
     liveSourcesRef,
-    rafRef,
     reverseCacheRef,
     initAudioContext,
     cleanup,
@@ -293,23 +285,22 @@ export default function OrbitrSequencer() {
         }
       });
 
-      // Advance to next step. Keep the authoritative step in a ref; the visible
-      // currentStep state is driven by a rAF loop to avoid a re-render storm (H6).
+      // Advance to next step. The authoritative step lives in a ref.
       audioEngine.nextNoteTimeRef.current += stepDuration;
       audioEngine.currentStepRef.current = (audioEngine.currentStepRef.current + 1) % STEPS_COUNT;
     }
 
-    audioEngine.schedulerTimerRef.current = window.setTimeout(scheduler, audioEngine.lookAhead);
-  }, [audioEngine, scheduleNote]);
-
-  // Drive the visible playhead from a single rAF loop, updating React state at
-  // most once per frame and only when the step actually changed (H6).
-  const playheadLoop = useCallback(() => {
+    // Drive the visible playhead from the scheduler itself rather than a separate
+    // 60fps rAF loop (#20): the step only changes when the scheduler advances it,
+    // so we sync React state here. The functional updater bails out (no re-render)
+    // when the step is unchanged, so this is cheap even though the scheduler tick
+    // runs more often than the step rate.
     setCurrentStep((prev) =>
       prev === audioEngine.currentStepRef.current ? prev : audioEngine.currentStepRef.current
     );
-    audioEngine.rafRef.current = requestAnimationFrame(playheadLoop);
-  }, [audioEngine.currentStepRef, audioEngine.rafRef]);
+
+    audioEngine.schedulerTimerRef.current = window.setTimeout(scheduler, audioEngine.lookAhead);
+  }, [audioEngine, scheduleNote]);
 
   const startPlayback = useCallback(async () => {
     try {
@@ -320,11 +311,8 @@ export default function OrbitrSequencer() {
       audioDebugLog('Audio context initialized, starting scheduler');
       audioEngine.nextNoteTimeRef.current = audioEngine.audioContextRef.current.currentTime;
       audioEngine.currentStepRef.current = 0;
+      setCurrentStep(0);
       scheduler();
-      // Start the playhead rAF loop (H6)
-      if (audioEngine.rafRef.current === null) {
-        audioEngine.rafRef.current = requestAnimationFrame(playheadLoop);
-      }
       audioDebugLog('Scheduler started');
     } catch (error) {
       audioDebugLog('startPlayback error', error);
@@ -332,18 +320,13 @@ export default function OrbitrSequencer() {
       // The user should see the button shows "playing" even if audio doesn't work
       audioDebugLog('Audio failed but keeping UI in playing state');
     }
-  }, [audioEngine, scheduler, playheadLoop]);
+  }, [audioEngine, scheduler]);
 
   const stopPlayback = useCallback(() => {
     audioDebugLog('stopPlayback called - this will set isPlaying to false');
     if (audioEngine.schedulerTimerRef.current) {
       clearTimeout(audioEngine.schedulerTimerRef.current);
       audioEngine.schedulerTimerRef.current = null;
-    }
-    // Cancel the playhead rAF loop (H6)
-    if (audioEngine.rafRef.current !== null) {
-      cancelAnimationFrame(audioEngine.rafRef.current);
-      audioEngine.rafRef.current = null;
     }
     // Hard-stop any sources already scheduled ahead so playback truly stops (H5)
     audioEngine.stopAllSources();
