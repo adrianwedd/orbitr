@@ -24,8 +24,9 @@ os.environ["GENERATION_TIMEOUT"] = "10"
 os.environ["MAX_REQUEST_SIZE"] = "1024"
 os.environ["ENVIRONMENT"] = "test"
 
+from types import SimpleNamespace
 from app import app, sanitize_text, validate_prompt_content
-from security_config import security_config
+from security_config import security_config, get_real_client_ip
 from security_middleware import security_metrics
 
 # Fixtures for test isolation
@@ -452,6 +453,52 @@ class TestHealthAndMonitoring:
         assert "status" in data
         assert "version" in data
         assert "environment" in data
+
+
+class TestForwardedIpTrust:
+    """Forwarded IP headers must only be trusted from configured proxies.
+
+    Otherwise a client can spoof X-Forwarded-For to rotate its apparent IP and
+    bypass per-IP rate limiting / IP blocking, or forge a victim's IP to get it
+    blocked.
+    """
+
+    @staticmethod
+    def _request(peer, **headers):
+        return SimpleNamespace(
+            client=SimpleNamespace(host=peer) if peer else None,
+            headers={k.replace("_", "-"): v for k, v in headers.items()},
+        )
+
+    @pytest.fixture(autouse=True)
+    def _restore_trusted_proxies(self):
+        original = set(security_config.trusted_proxies)
+        yield
+        security_config.trusted_proxies = original
+
+    def test_forwarded_header_ignored_when_no_trusted_proxy(self):
+        """Spoofed X-Forwarded-For is ignored; the real peer IP is used."""
+        security_config.trusted_proxies = set()
+        req = self._request("203.0.113.9", x_forwarded_for="1.2.3.4")
+        assert get_real_client_ip(req) == "203.0.113.9"
+
+    def test_forwarded_header_ignored_when_peer_untrusted(self):
+        """A peer not in TRUSTED_PROXIES cannot inject a forwarded IP."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("203.0.113.9", x_forwarded_for="1.2.3.4")
+        assert get_real_client_ip(req) == "203.0.113.9"
+
+    def test_forwarded_header_honored_from_trusted_proxy(self):
+        """A trusted proxy's forwarded IP is honoured (leftmost entry)."""
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1", x_forwarded_for="1.2.3.4, 10.0.0.1")
+        assert get_real_client_ip(req) == "1.2.3.4"
+
+    def test_falls_back_to_peer_without_forwarded_header(self):
+        security_config.trusted_proxies = {"10.0.0.1"}
+        req = self._request("10.0.0.1")
+        assert get_real_client_ip(req) == "10.0.0.1"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

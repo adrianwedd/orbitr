@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 import bleach
 from dotenv import load_dotenv
-from security_config import security_config, SecurityLevel
+from security_config import security_config, SecurityLevel, get_real_client_ip
 from security_middleware import (
     SecurityMiddleware, AuthenticationMiddleware, RateLimitMiddleware,
     get_security_metrics, security_logger
@@ -63,20 +63,14 @@ ENVIRONMENT = security_config.environment.value
 # Rate limiter setup
 #
 # Forwarded-aware key function: rate-limit on the real client IP rather than the
-# direct peer (which behind a proxy/load balancer is the proxy itself). This
-# reuses the same X-Forwarded-For parsing logic as SecurityMiddleware._get_client_ip.
-_FORWARDED_HEADERS = ("x-forwarded-for", "x-real-ip", "cf-connecting-ip", "x-cluster-client-ip")
-
-
+# direct peer (which behind a proxy/load balancer is the proxy itself). Forwarded
+# headers are honoured ONLY when the peer is a configured trusted proxy — otherwise
+# they are spoofable and a client could rotate IPs to bypass the limit. See
+# security_config.get_real_client_ip.
 def _forwarded_key_func(request: Request) -> str:
-    """Rate-limit key derived from the real client IP (honours X-Forwarded-For)."""
-    for header in _FORWARDED_HEADERS:
-        value = request.headers.get(header)
-        if value:
-            ip = value.split(",")[0].strip()
-            if ip:
-                return ip
-    return get_remote_address(request)
+    """Rate-limit key derived from the real client IP (trusted-proxy gated)."""
+    ip = get_real_client_ip(request)
+    return ip if ip != "unknown" else get_remote_address(request)
 
 
 # Shared storage for rate-limit counters. Per-process in-memory storage is the

@@ -101,6 +101,8 @@ class SecurityConfig:
         # CORS configuration
         self.cors_origins = self._parse_cors_origins()
         self.trusted_hosts = self._parse_trusted_hosts()
+        # Reverse proxies whose forwarded IP headers we are willing to trust.
+        self.trusted_proxies = self._parse_trusted_proxies()
         
         # Logging configuration
         self.enable_security_logging = os.getenv("ENABLE_SECURITY_LOGGING", "true").lower() == "true"
@@ -201,7 +203,18 @@ class SecurityConfig:
             if host and host not in hosts:
                 hosts.append(host)
         return hosts
-    
+
+    def _parse_trusted_proxies(self) -> set:
+        """Parse the set of reverse-proxy IPs we trust to set X-Forwarded-* headers.
+
+        Forwarded headers are trivially spoofable by any client, so they are only
+        honoured when the request's direct peer is one of these addresses. Secure by
+        default: with TRUSTED_PROXIES unset, forwarded headers are ignored entirely
+        and the direct peer IP is used for rate-limiting / blocking.
+        """
+        raw = os.getenv("TRUSTED_PROXIES", "")
+        return {p.strip() for p in raw.split(",") if p.strip()}
+
     def _validate_config(self):
         """Validate security configuration"""
         errors = []
@@ -291,6 +304,31 @@ class SecurityConfig:
 # different settings must set the relevant env vars BEFORE importing app/this
 # module (conftest.py does this), or patch the live singleton's attributes.
 security_config = SecurityConfig()
+
+# Forwarded IP headers, in order of preference, set by reverse proxies / CDNs.
+_FORWARDED_IP_HEADERS = ("x-forwarded-for", "x-real-ip", "cf-connecting-ip", "x-cluster-client-ip")
+
+
+def get_real_client_ip(request) -> str:
+    """Resolve the client IP used for rate-limiting, logging, and IP blocking.
+
+    Forwarded headers (X-Forwarded-For, etc.) are attacker-controlled and would let
+    a client rotate its apparent IP to bypass rate limits / IP blocks, or forge a
+    victim's IP to get them blocked. They are therefore honoured ONLY when the
+    request's direct peer is a configured trusted proxy (TRUSTED_PROXIES). Otherwise
+    the direct peer address is authoritative. Secure by default: no trusted proxies
+    configured => forwarded headers are ignored.
+    """
+    peer = request.client.host if request.client else None
+    if peer and peer in security_config.trusted_proxies:
+        for header in _FORWARDED_IP_HEADERS:
+            value = request.headers.get(header)
+            if value:
+                ip = value.split(",")[0].strip()
+                if ip:
+                    return ip
+    return peer or "unknown"
+
 
 # Security utilities
 def generate_request_id() -> str:
