@@ -2,8 +2,8 @@
   "ci": {
     "collect": {
       "url": ["http://localhost:3000/"],
-      "startServerCommand": "npm run build && npm run start",
-      "startServerReadyPattern": "ready on",
+      "startServerCommand": "pnpm run build && pnpm run start",
+      "startServerReadyPattern": "Ready in",
       "numberOfRuns": 3
     },
     "assert": {
