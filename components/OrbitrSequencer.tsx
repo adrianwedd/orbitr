@@ -12,6 +12,7 @@ import { EnhancedSequencer } from './EnhancedSequencer';
 import { Tooltip, KeyboardShortcutTooltip } from './ui/Tooltip';
 import { KeyboardShortcutsHelp } from './ui/KeyboardShortcutsHelp';
 import { CollapsiblePanel } from './ui/CollapsiblePanel';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { deg2rad, rid } from '@/lib/utils';
 import { SampleLibraryItem } from '@/lib/types';
 import { getApiUrl, config, audioDebugLog, generationDebugLog } from '@/lib/config';
@@ -653,12 +654,14 @@ export default function OrbitrSequencer() {
       {/* Bottom Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CollapsiblePanel title="Sample Library" defaultOpen={false}>
-          <SampleLibrary
-            embedded
-            hideHeader
-            library={library}
-            onFileUpload={handleFileUpload}
-          />
+          <ErrorBoundary name="Sample Library">
+            <SampleLibrary
+              embedded
+              hideHeader
+              library={library}
+              onFileUpload={handleFileUpload}
+            />
+          </ErrorBoundary>
         </CollapsiblePanel>
 
         <CollapsiblePanel title="Generation Queue" defaultOpen={true}>
