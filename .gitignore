@@ -84,3 +84,12 @@ poetry.lock
 *.pth
 *.safetensors
 transformers_cache/
+.afterwords
+
+# Test and build artifacts (regenerable)
+test-results/
+playwright-report/
+*.tsbuildinfo
+debug-screenshot.png
+issue_*_body.json
+issue_*_body.txt
