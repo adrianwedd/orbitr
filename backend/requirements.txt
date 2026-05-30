@@ -15,7 +15,7 @@ scipy==1.11.4
 torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.35.0
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 
 # Security dependencies
 slowapi==0.1.9
