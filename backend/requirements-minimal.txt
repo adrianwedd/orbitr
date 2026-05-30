@@ -1,7 +1,7 @@
 # Supported Python: 3.9–3.12 (minimal backend, no audiocraft/torch).
 # numpy/scipy use lower-bound ranges so newer versions with 3.12 wheels resolve.
 fastapi==0.120.2
-uvicorn==0.35.0
+uvicorn==0.48.0
 python-multipart==0.0.27
 pydantic==2.13.4
 numpy>=1.26.0
