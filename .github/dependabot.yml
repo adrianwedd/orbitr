@@ -21,3 +21,13 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    ignore:
+      # numpy/scipy are pinned in requirements.txt to the versions audiocraft==1.3.0
+      # is known to work with — audiocraft 1.3.0 caps numpy<2.0, and scipy 1.16+
+      # requires numpy>=1.25.2. Bumping either breaks the AI/torch dependency graph
+      # (see the header comment in backend/requirements.txt). The minimal/test
+      # backend (requirements-minimal.txt) intentionally allows newer numpy/scipy
+      # via >= ranges since it has no torch/audiocraft. Bumping these is a manual,
+      # audiocraft-coordinated decision, not an automated one.
+      - dependency-name: "numpy"
+      - dependency-name: "scipy"
