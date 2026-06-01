@@ -70,7 +70,7 @@
     "husky": "^8.0.3",
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
-    "lint-staged": "^16.2.6",
+    "lint-staged": "^17.0.7",
     "playwright": "^1.60.0",
     "postcss": "^8.4.33",
     "prettier": "^3.1.1",
