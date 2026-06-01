@@ -20,5 +20,5 @@ python-dotenv==1.2.2
 # Security dependencies
 slowapi==0.1.9
 # cryptography provides Fernet, used by api_key_management.py for encrypted key storage.
-cryptography>=42.0.0
+cryptography>=48.0.0
 bleach==6.3.0
